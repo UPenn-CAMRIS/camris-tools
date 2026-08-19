@@ -71,7 +71,7 @@ export const MISMATCH_RULE_EXPLANATIONS: RuleExplanation[] = [
 
 export function renderRuleExplanations(items: RuleExplanation[]): string {
   return `
-    <details class="rule-explainer">
+    <details class="detail-box rule-explainer">
       <summary>What do these columns mean?</summary>
       <dl>
         ${items

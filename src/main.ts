@@ -126,7 +126,7 @@ function renderCsvWarnings(key: FileSlot["key"], warnings: CsvWarning[]): void {
   if (warnings.length === 0) return;
 
   const details = document.createElement("details");
-  details.className = "rule-explainer csv-warnings";
+  details.className = "detail-box csv-warnings";
 
   const summary = document.createElement("summary");
   summary.textContent = `${warnings.length} row${
