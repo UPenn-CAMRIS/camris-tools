@@ -213,6 +213,7 @@ function showError(message: string): void {
 const violationColumns: Column<ViolationRow>[] = [
   { header: "Event ID", get: (r) => r.eventId },
   { header: "Protocol Number", get: (r) => r.protocolNumber },
+  { header: "Scan Time", get: (r) => r.scanTime },
   { header: "Industry Billed As Government", get: (r) => r.industryBilledAsGovernment },
   { header: "Government Billed As Industry", get: (r) => r.governmentBilledAsIndustry },
   { header: "Animal Billed As Human", get: (r) => r.animalBilledAsHuman },
@@ -298,7 +299,7 @@ function renderTable<T>(
       const value = col.get(row);
       if (typeof value === "boolean") {
         td.textContent = value ? "✓" : "";
-        if (value) td.className = "bool-true";
+        td.className = value ? "bool-cell bool-true" : "bool-cell";
       } else {
         td.textContent = value;
       }

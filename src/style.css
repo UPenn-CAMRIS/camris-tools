@@ -205,6 +205,10 @@ th {
   overflow-wrap: normal;
 }
 
+td.bool-cell {
+  text-align: center;
+}
+
 td.bool-true {
   color: var(--ok);
   font-weight: 600;

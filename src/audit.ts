@@ -3,6 +3,8 @@ import type {
   AddOnWithoutMriRow,
   AuditResult,
   ComputedFlags,
+  DedupedMismatchRow,
+  DedupedViolationRow,
   MismatchRow,
   ScannerEventRow,
   ServiceFlags,
@@ -108,6 +110,7 @@ function extractRedcapProtocol(rawIrbNumber: string): string {
 interface DogfishEvent {
   eventId: string;
   protocolNumberRaw: string;
+  scanTime: string;
   flags: ServiceFlags;
   neuroreaderAtStellarChance: boolean;
 }
@@ -123,6 +126,7 @@ function buildDogfishEvents(dogfishRows: CsvRow[]): DogfishEvent[] {
     if (eventId === "") continue;
 
     const protocolNumberRaw = (row["Protocol Number"] ?? "").trim();
+    const scanTime = (row["Scan Time"] ?? "").trim();
     const scanner = (row["Scanner"] ?? "").trim();
 
     const flagKey = SERVICE_MAP[service];
@@ -140,6 +144,7 @@ function buildDogfishEvents(dogfishRows: CsvRow[]): DogfishEvent[] {
       eventsById.set(eventId, {
         eventId,
         protocolNumberRaw,
+        scanTime,
         flags: rowFlags,
         neuroreaderAtStellarChance: rowNeuroreaderAtStellarChance,
       });
@@ -296,14 +301,27 @@ function computeFlags(
   };
 }
 
-/** Drops Event ID and collapses rows down to unique remaining-field
- * combinations — used to go from a per-event table to a per-protocol one. */
-function dedupeByEvent<T extends { eventId: string }>(
-  rows: T[]
-): Omit<T, "eventId">[] {
-  const seen = new Map<string, Omit<T, "eventId">>();
+/** Drops Event ID and Scan Time (both unique per event, so keeping either
+ * would defeat the dedup) and collapses violations down to unique
+ * remaining-field combinations — used to go from a per-event table to a
+ * per-protocol one. */
+function dedupeViolations(violations: ViolationRow[]): DedupedViolationRow[] {
+  const seen = new Map<string, DedupedViolationRow>();
 
-  for (const { eventId: _eventId, ...rest } of rows) {
+  for (const { eventId: _eventId, scanTime: _scanTime, ...rest } of violations) {
+    const key = JSON.stringify(rest);
+    if (!seen.has(key)) seen.set(key, rest);
+  }
+
+  return [...seen.values()];
+}
+
+/** Same idea as dedupeViolations, but for mismatches, which have no
+ * per-event-only field besides Event ID to drop. */
+function dedupeMismatches(mismatches: MismatchRow[]): DedupedMismatchRow[] {
+  const seen = new Map<string, DedupedMismatchRow>();
+
+  for (const { eventId: _eventId, ...rest } of mismatches) {
     const key = JSON.stringify(rest);
     if (!seen.has(key)) seen.set(key, rest);
   }
@@ -364,6 +382,7 @@ export function runAudit(
       violations.push({
         eventId: event.eventId,
         protocolNumber: event.protocolNumberRaw,
+        scanTime: event.scanTime,
         industryBilledAsGovernment: computed.industryBilledAsGovernment === true,
         governmentBilledAsIndustry: computed.governmentBilledAsIndustry === true,
         animalBilledAsHuman: computed.animalBilledAsHuman,
@@ -379,9 +398,9 @@ export function runAudit(
 
   return {
     violations,
-    dedupedViolations: dedupeByEvent(violations),
+    dedupedViolations: dedupeViolations(violations),
     mismatches,
-    dedupedMismatches: dedupeByEvent(mismatches),
+    dedupedMismatches: dedupeMismatches(mismatches),
     scannerEvents: buildScannerEvents(dogfishRows),
     addOnsWithoutMri: buildAddOnsWithoutMri(events),
   };

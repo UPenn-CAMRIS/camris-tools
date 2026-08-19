@@ -11,6 +11,7 @@ export interface ServiceFlags {
 export interface ViolationRow {
   eventId: string;
   protocolNumber: string;
+  scanTime: string;
   industryBilledAsGovernment: boolean;
   governmentBilledAsIndustry: boolean;
   animalBilledAsHuman: boolean;
@@ -43,9 +44,10 @@ export interface ComputedFlags {
 
 /** Same violation flags as ViolationRow, but deduped across events: one row
  * per distinct (protocol number, violation flags) combination, dropping
- * Event ID. Useful for seeing which protocols have a given violation type
- * without one row per billing event. */
-export type DedupedViolationRow = Omit<ViolationRow, "eventId">;
+ * Event ID and Scan Time (both unique per event, so keeping either would
+ * defeat the dedup). Useful for seeing which protocols have a given
+ * violation type without one row per billing event. */
+export type DedupedViolationRow = Omit<ViolationRow, "eventId" | "scanTime">;
 
 export interface MismatchRow {
   eventId: string;
