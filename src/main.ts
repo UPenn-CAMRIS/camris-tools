@@ -3,6 +3,7 @@ import { parseCsv, type CsvRow } from "./parseCsv";
 import { runAudit, TARGET_SCANNER } from "./audit";
 import { toCsv, downloadCsv, type Column } from "./csvExport";
 import type {
+  AddOnWithoutMriRow,
   DedupedViolationRow,
   MismatchRow,
   ScannerEventRow,
@@ -86,6 +87,15 @@ app.innerHTML = `
       <div class="table-wrap" id="scanner-events-table"></div>
       <p class="table-note">Every Dogfish row on the ${TARGET_SCANNER} scanner, including no-shows and late cancellations — not filtered by any audit rule.</p>
     </div>
+
+    <div class="results-section">
+      <div class="results-section-header">
+        <h2>Add-On Fees Without MRI <span class="count" id="addon-count"></span></h2>
+        <button class="secondary" id="export-addons">Export CSV</button>
+      </div>
+      <div class="table-wrap" id="addons-table"></div>
+      <p class="table-note">Events billed for a Stimulus/Response Equipment and/or Neuroreader (Research Report Reader) fee with no MRI service code on the same event — these fees are meant to accompany a scan, so one alone is a data-quality flag independent of the CAMS/RedCap checks.</p>
+    </div>
   </div>
 `;
 
@@ -159,6 +169,7 @@ const violationColumns: Column<ViolationRow>[] = [
   { header: "Stimulus Billing Extra", get: (r) => r.stimulusBillingExtra },
   { header: "Neuroreader Billing Missed", get: (r) => r.neuroreaderBillingMissed },
   { header: "Neuroreader Billing Extra", get: (r) => r.neuroreaderBillingExtra },
+  { header: "Neuroreader Billed At Stellar Chance", get: (r) => r.neuroreaderAtStellarChance },
 ];
 
 const dedupedViolationColumns: Column<DedupedViolationRow>[] = [
@@ -171,6 +182,7 @@ const dedupedViolationColumns: Column<DedupedViolationRow>[] = [
   { header: "Stimulus Billing Extra", get: (r) => r.stimulusBillingExtra },
   { header: "Neuroreader Billing Missed", get: (r) => r.neuroreaderBillingMissed },
   { header: "Neuroreader Billing Extra", get: (r) => r.neuroreaderBillingExtra },
+  { header: "Neuroreader Billed At Stellar Chance", get: (r) => r.neuroreaderAtStellarChance },
 ];
 
 const mismatchColumns: Column<MismatchRow>[] = [
@@ -190,6 +202,13 @@ const scannerEventColumns: Column<ScannerEventRow>[] = [
   { header: "Mandatory Service", get: (r) => r.mandatoryService },
   { header: "Scheduling User", get: (r) => r.schedulingUser },
   { header: "Check-In User", get: (r) => r.checkInUser },
+];
+
+const addOnColumns: Column<AddOnWithoutMriRow>[] = [
+  { header: "Event ID", get: (r) => r.eventId },
+  { header: "Protocol Number", get: (r) => r.protocolNumber },
+  { header: "Stimulus", get: (r) => r.stimulus },
+  { header: "Neuroreader", get: (r) => r.neuroreader },
 ];
 
 function renderTable<T>(
@@ -245,6 +264,7 @@ let lastViolations: ViolationRow[] = [];
 let lastDedupedViolations: DedupedViolationRow[] = [];
 let lastMismatches: MismatchRow[] = [];
 let lastScannerEvents: ScannerEventRow[] = [];
+let lastAddOns: AddOnWithoutMriRow[] = [];
 
 runButton.addEventListener("click", () => {
   errorBanner.style.display = "none";
@@ -254,12 +274,13 @@ runButton.addEventListener("click", () => {
     const camsRows = loadedRows.get("cams")!;
     const redcapRows = loadedRows.get("redcap")!;
 
-    const { violations, dedupedViolations, mismatches, scannerEvents } =
+    const { violations, dedupedViolations, mismatches, scannerEvents, addOnsWithoutMri } =
       runAudit(dogfishRows, camsRows, redcapRows);
     lastViolations = violations;
     lastDedupedViolations = dedupedViolations;
     lastMismatches = mismatches;
     lastScannerEvents = scannerEvents;
+    lastAddOns = addOnsWithoutMri;
 
     document.getElementById(
       "violation-count"
@@ -273,6 +294,9 @@ runButton.addEventListener("click", () => {
     document.getElementById(
       "scanner-event-count"
     )!.textContent = `(${scannerEvents.length})`;
+    document.getElementById(
+      "addon-count"
+    )!.textContent = `(${addOnsWithoutMri.length})`;
 
     renderTable(
       "violations-table",
@@ -297,6 +321,12 @@ runButton.addEventListener("click", () => {
       scannerEventColumns,
       scannerEvents,
       `No events found on the ${TARGET_SCANNER} scanner.`
+    );
+    renderTable(
+      "addons-table",
+      addOnColumns,
+      addOnsWithoutMri,
+      "No add-on fees found without an MRI service."
     );
 
     resultsEl.classList.add("visible");
@@ -331,3 +361,10 @@ document
       toCsv(scannerEventColumns, lastScannerEvents)
     );
   });
+
+document.getElementById("export-addons")!.addEventListener("click", () => {
+  downloadCsv(
+    "addons_without_mri.csv",
+    toCsv(addOnColumns, lastAddOns)
+  );
+});

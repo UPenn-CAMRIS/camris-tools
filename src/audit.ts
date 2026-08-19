@@ -1,5 +1,6 @@
 import type { CsvRow } from "./parseCsv";
 import type {
+  AddOnWithoutMriRow,
   AuditResult,
   ComputedFlags,
   DedupedViolationRow,
@@ -21,6 +22,9 @@ const SERVICE_MAP: Record<string, keyof ServiceFlags> = {
 
 const NO_SHOW_SERVICE = "No Show/Cancellation Fee";
 export const TARGET_SCANNER = "SC7T";
+
+const NEUROREADER_SERVICE = "Research Report Reader Fee";
+const STELLAR_CHANCE_SCANNERS = new Set(["SC3T", "SC7T"]);
 
 // Dogfish/CAMS protocol numbers are either a bare 6-digit number (optionally
 // with a suffix like "_7X" that this strips) or an animal protocol starting
@@ -83,6 +87,7 @@ interface DogfishEvent {
   eventId: string;
   protocolNumberRaw: string;
   flags: ServiceFlags;
+  neuroreaderAtStellarChance: boolean;
 }
 
 function buildDogfishEvents(dogfishRows: CsvRow[]): DogfishEvent[] {
@@ -96,19 +101,25 @@ function buildDogfishEvents(dogfishRows: CsvRow[]): DogfishEvent[] {
     if (eventId === "") continue;
 
     const protocolNumberRaw = (row["Protocol Number"] ?? "").trim();
+    const scanner = (row["Scanner"] ?? "").trim();
 
     const flagKey = SERVICE_MAP[service];
     const rowFlags = emptyFlags();
     if (flagKey) rowFlags[flagKey] = true;
 
+    const rowNeuroreaderAtStellarChance =
+      service === NEUROREADER_SERVICE && STELLAR_CHANCE_SCANNERS.has(scanner);
+
     const existing = eventsById.get(eventId);
     if (existing) {
       existing.flags = orFlags(existing.flags, rowFlags);
+      existing.neuroreaderAtStellarChance ||= rowNeuroreaderAtStellarChance;
     } else {
       eventsById.set(eventId, {
         eventId,
         protocolNumberRaw,
         flags: rowFlags,
+        neuroreaderAtStellarChance: rowNeuroreaderAtStellarChance,
       });
     }
   }
@@ -133,6 +144,39 @@ function buildScannerEvents(dogfishRows: CsvRow[]): ScannerEventRow[] {
       schedulingUser: (row["Scheduling User"] ?? "").trim(),
       checkInUser: (row["Check-In User"] ?? "").trim(),
     });
+  }
+
+  return rows;
+}
+
+function hasMriService(flags: ServiceFlags): boolean {
+  return (
+    flags.humanMRI ||
+    flags.humanMRIIndustry ||
+    flags.humanMRIExVivo ||
+    flags.animalMRI ||
+    flags.animalMRIIndustry
+  );
+}
+
+/** Stimulus/Neuroreader fees are meant to accompany a scan on the same
+ * event. One billed with no MRI service code alongside it is a
+ * data-quality flag, independent of whether it's also a CAMS/RedCap
+ * mismatch or violation. */
+function buildAddOnsWithoutMri(events: DogfishEvent[]): AddOnWithoutMriRow[] {
+  const rows: AddOnWithoutMriRow[] = [];
+
+  for (const event of events) {
+    const { flags } = event;
+    const hasAddOn = flags.stimulus || flags.neuroreader;
+    if (hasAddOn && !hasMriService(flags)) {
+      rows.push({
+        eventId: event.eventId,
+        protocolNumber: event.protocolNumberRaw,
+        stimulus: flags.stimulus,
+        neuroreader: flags.neuroreader,
+      });
+    }
   }
 
   return rows;
@@ -226,6 +270,7 @@ function computeFlags(
     neuroreaderBillingExtra: redcap
       ? flags.neuroreader && !redcap.neuroreader
       : undefined,
+    neuroreaderAtStellarChance: event.neuroreaderAtStellarChance,
   };
 }
 
@@ -249,7 +294,8 @@ function hasAnyViolation(computed: ComputedFlags): boolean {
     computed.stimulusBillingMissed === true ||
     computed.stimulusBillingExtra === true ||
     computed.neuroreaderBillingMissed === true ||
-    computed.neuroreaderBillingExtra === true
+    computed.neuroreaderBillingExtra === true ||
+    computed.neuroreaderAtStellarChance
   );
 }
 
@@ -300,6 +346,7 @@ export function runAudit(
         stimulusBillingExtra: computed.stimulusBillingExtra === true,
         neuroreaderBillingMissed: computed.neuroreaderBillingMissed === true,
         neuroreaderBillingExtra: computed.neuroreaderBillingExtra === true,
+        neuroreaderAtStellarChance: computed.neuroreaderAtStellarChance,
       });
     }
   }
@@ -309,5 +356,6 @@ export function runAudit(
     dedupedViolations: dedupeViolations(violations),
     mismatches,
     scannerEvents: buildScannerEvents(dogfishRows),
+    addOnsWithoutMri: buildAddOnsWithoutMri(events),
   };
 }

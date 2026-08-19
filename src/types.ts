@@ -19,6 +19,7 @@ export interface ViolationRow {
   stimulusBillingExtra: boolean;
   neuroreaderBillingMissed: boolean;
   neuroreaderBillingExtra: boolean;
+  neuroreaderAtStellarChance: boolean;
 }
 
 /**
@@ -37,6 +38,7 @@ export interface ComputedFlags {
   stimulusBillingExtra: boolean | undefined;
   neuroreaderBillingMissed: boolean | undefined;
   neuroreaderBillingExtra: boolean | undefined;
+  neuroreaderAtStellarChance: boolean;
 }
 
 /** Same violation flags as ViolationRow, but deduped across events: one row
@@ -67,9 +69,21 @@ export interface ScannerEventRow {
   checkInUser: string;
 }
 
+/** A Dogfish event (grouped by Event ID, no-shows excluded) that billed a
+ * Stimulus and/or Neuroreader add-on fee but no main MRI service code —
+ * these fees are meant to ride along with a scan, so one appearing alone is
+ * a data-quality flag independent of the CAMS/RedCap checks. */
+export interface AddOnWithoutMriRow {
+  eventId: string;
+  protocolNumber: string;
+  stimulus: boolean;
+  neuroreader: boolean;
+}
+
 export interface AuditResult {
   violations: ViolationRow[];
   dedupedViolations: DedupedViolationRow[];
   mismatches: MismatchRow[];
   scannerEvents: ScannerEventRow[];
+  addOnsWithoutMri: AddOnWithoutMriRow[];
 }

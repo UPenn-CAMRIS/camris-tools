@@ -15,11 +15,8 @@ console.log(
     `${redcap.rows.length} RedCap rows (${redcap.warningRowCount} warnings)`
 );
 
-const { violations, dedupedViolations, mismatches, scannerEvents } = runAudit(
-  dogfish.rows,
-  cams.rows,
-  redcap.rows
-);
+const { violations, dedupedViolations, mismatches, scannerEvents, addOnsWithoutMri } =
+  runAudit(dogfish.rows, cams.rows, redcap.rows);
 
 console.log(`\n${violations.length} violation rows (per event)`);
 console.table(violations.slice(0, 20));
@@ -48,3 +45,6 @@ console.log("Mismatch counts by type:", mismatchCounts);
 
 console.log(`\n${scannerEvents.length} SC7T scanner events (incl. no-shows)`);
 console.table(scannerEvents.slice(0, 20));
+
+console.log(`\n${addOnsWithoutMri.length} add-on fees billed without an MRI service`);
+console.table(addOnsWithoutMri);

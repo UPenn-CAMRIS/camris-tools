@@ -26,6 +26,7 @@ normalized protocol number) and flags:
 - Animal protocols billed under a human MRI service code, and vice versa
 - Stimulus/Response Equipment or Neuroreader (Research Report Reader) fees that
   were billed but not approved, or approved but never billed
+- Neuroreader fees billed on the SC3T or SC7T scanner (Stellar Chance)
 
 Full plain-English descriptions of each rule are in an expandable panel under
 each results table in the app itself.
@@ -44,6 +45,10 @@ each results table in the app itself.
    RedCap only tracks human IRB applications.)
 4. **SC7T Scanner Events** — every raw Dogfish row on the SC7T scanner,
    including no-shows and cancellations, unfiltered by any audit rule.
+5. **Add-On Fees Without MRI** — events billed for a Stimulus/Response
+   Equipment and/or Neuroreader fee with no MRI service code on the same
+   event. These fees are meant to ride along with a scan, so this is a
+   data-quality flag independent of the CAMS/RedCap checks above.
 
 Every table can be exported to CSV from the button above it.
 
@@ -71,7 +76,8 @@ folder instead, e.g. `python3 -m http.server 8080 --directory dist`.
 src/
   main.ts             UI wiring: file uploads, run button, table rendering, CSV export
   audit.ts             the rule engine — protocol normalization, event grouping,
-                        CAMS/RedCap matching, the violation checks, SC7T event listing
+                        CAMS/RedCap matching, the violation checks, SC7T event
+                        listing, and the add-on-without-MRI check
   parseCsv.ts           CSV parsing (papaparse), tolerant of malformed rows
   csvExport.ts          generic CSV export + download
   ruleExplanations.ts   plain-English descriptions shown under each table

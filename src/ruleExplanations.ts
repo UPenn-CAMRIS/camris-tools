@@ -7,7 +7,7 @@ export const VIOLATION_RULE_EXPLANATIONS: RuleExplanation[] = [
   {
     label: "Industry Billed As Government",
     description:
-      "CAMS marks the protocol as industry-sponsored, but none of its Dogfish events were billed under an industry MRI service code — industry-funded work may have been billed at the cheaper government/academic rate.",
+      "A Dogfish event for the protocol was billed at a non-industry MRI rate, but CAMS marks the protocol as industry-sponsored — industry-funded work may have been billed at the cheaper government/academic rate.",
   },
   {
     label: "Government Billed As Industry",
@@ -43,6 +43,11 @@ export const VIOLATION_RULE_EXPLANATIONS: RuleExplanation[] = [
     label: "Neuroreader Billing Extra",
     description:
       "Dogfish billed a Research Report Reader (Neuroreader) fee for the protocol, but the approved RedCap review letter does not include that fee — an extra, unapproved fee may have been billed.",
+  },
+  {
+    label: "Neuroreader Billed At Stellar Chance",
+    description:
+      "A Research Report Reader (Neuroreader) fee was billed on the SC3T or SC7T scanner (Stellar Chance) — flagged for review.",
   },
 ];
 
