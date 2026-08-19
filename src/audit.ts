@@ -3,7 +3,6 @@ import type {
   AddOnWithoutMriRow,
   AuditResult,
   ComputedFlags,
-  DedupedViolationRow,
   MismatchRow,
   ScannerEventRow,
   ServiceFlags,
@@ -297,10 +296,14 @@ function computeFlags(
   };
 }
 
-function dedupeViolations(violations: ViolationRow[]): DedupedViolationRow[] {
-  const seen = new Map<string, DedupedViolationRow>();
+/** Drops Event ID and collapses rows down to unique remaining-field
+ * combinations — used to go from a per-event table to a per-protocol one. */
+function dedupeByEvent<T extends { eventId: string }>(
+  rows: T[]
+): Omit<T, "eventId">[] {
+  const seen = new Map<string, Omit<T, "eventId">>();
 
-  for (const { eventId: _eventId, ...rest } of violations) {
+  for (const { eventId: _eventId, ...rest } of rows) {
     const key = JSON.stringify(rest);
     if (!seen.has(key)) seen.set(key, rest);
   }
@@ -376,8 +379,9 @@ export function runAudit(
 
   return {
     violations,
-    dedupedViolations: dedupeViolations(violations),
+    dedupedViolations: dedupeByEvent(violations),
     mismatches,
+    dedupedMismatches: dedupeByEvent(mismatches),
     scannerEvents: buildScannerEvents(dogfishRows),
     addOnsWithoutMri: buildAddOnsWithoutMri(events),
   };

@@ -10,12 +10,22 @@ const cams = parseCsv(readFileSync(join(dir, "CAMS_Data.csv"), "utf-8"));
 const redcap = parseCsv(readFileSync(join(dir, "Redcap_Export.csv"), "utf-8"));
 
 console.log(
-  `Loaded ${dogfish.rows.length} Dogfish rows (${dogfish.warningRowCount} warnings), ` +
-    `${cams.rows.length} CAMS rows (${cams.warningRowCount} warnings), ` +
-    `${redcap.rows.length} RedCap rows (${redcap.warningRowCount} warnings)`
+  `Loaded ${dogfish.rows.length} Dogfish rows (${dogfish.warnings.length} warnings), ` +
+    `${cams.rows.length} CAMS rows (${cams.warnings.length} warnings), ` +
+    `${redcap.rows.length} RedCap rows (${redcap.warnings.length} warnings)`
 );
 
-const { violations, dedupedViolations, mismatches, scannerEvents, addOnsWithoutMri } =
+for (const { file, warnings } of [
+  { file: "Dogfish_Events.csv", warnings: dogfish.warnings },
+  { file: "CAMS_Data.csv", warnings: cams.warnings },
+  { file: "Redcap_Export.csv", warnings: redcap.warnings },
+]) {
+  for (const w of warnings) {
+    console.log(`  [${file}] line ${w.rowIndex + 2}: ${w.explanation}`);
+  }
+}
+
+const { violations, dedupedViolations, dedupedMismatches, scannerEvents, addOnsWithoutMri } =
   runAudit(dogfish.rows, cams.rows, redcap.rows);
 
 console.log(`\n${violations.length} violation rows (per event)`);
@@ -32,14 +42,16 @@ for (const v of violations) {
 }
 console.log("Violation counts by type:", violationCounts);
 
-console.log(`\n${mismatches.length} mismatch rows`);
-console.table(mismatches.slice(0, 20));
+console.log(`\n${dedupedMismatches.length} deduped mismatch rows (per protocol)`);
+console.table(dedupedMismatches);
 
 const mismatchCounts = {
-  noCamsMatch: mismatches.filter((m) => m.noCamsMatch).length,
-  noActiveRedcapMatch: mismatches.filter((m) => m.noActiveRedcapMatch).length,
-  invalidProtocolFormat: mismatches.filter((m) => m.invalidProtocolFormat)
+  noCamsMatch: dedupedMismatches.filter((m) => m.noCamsMatch).length,
+  noActiveRedcapMatch: dedupedMismatches.filter((m) => m.noActiveRedcapMatch)
     .length,
+  invalidProtocolFormat: dedupedMismatches.filter(
+    (m) => m.invalidProtocolFormat
+  ).length,
 };
 console.log("Mismatch counts by type:", mismatchCounts);
 

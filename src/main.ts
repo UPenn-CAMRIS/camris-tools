@@ -1,11 +1,11 @@
 import "./style.css";
-import { parseCsv, type CsvRow } from "./parseCsv";
+import { parseCsv, type CsvRow, type CsvWarning } from "./parseCsv";
 import { runAudit, TARGET_SCANNER } from "./audit";
 import { toCsv, downloadCsv, type Column } from "./csvExport";
 import type {
   AddOnWithoutMriRow,
+  DedupedMismatchRow,
   DedupedViolationRow,
-  MismatchRow,
   ScannerEventRow,
   ViolationRow,
 } from "./types";
@@ -29,7 +29,6 @@ const SLOTS: FileSlot[] = [
 ];
 
 const loadedRows = new Map<FileSlot["key"], CsvRow[]>();
-const warningCounts = new Map<FileSlot["key"], number>();
 
 const app = document.getElementById("app")!;
 app.innerHTML = `
@@ -39,10 +38,13 @@ app.innerHTML = `
   <div class="upload-grid">
     ${SLOTS.map(
       (slot) => `
-      <div class="upload-row">
-        <label for="file-${slot.key}">${slot.label}</label>
-        <input type="file" id="file-${slot.key}" accept="${slot.accept}" />
-        <span class="file-status" id="status-${slot.key}">No file selected</span>
+      <div class="upload-slot">
+        <div class="upload-row">
+          <label for="file-${slot.key}">${slot.label}</label>
+          <input type="file" id="file-${slot.key}" accept="${slot.accept}" />
+          <span class="file-status" id="status-${slot.key}">No file selected</span>
+        </div>
+        <div id="warnings-${slot.key}"></div>
       </div>`
     ).join("")}
   </div>
@@ -54,7 +56,7 @@ app.innerHTML = `
   <div id="results" class="results">
     <div class="results-section">
       <div class="results-section-header">
-        <h2>Violations by Protocol (deduped) <span class="count" id="deduped-violation-count"></span></h2>
+        <h2>Violations by Protocol <span class="count" id="deduped-violation-count"></span></h2>
         <button class="secondary" id="export-deduped-violations">Export CSV</button>
       </div>
       <div class="table-wrap" id="deduped-violations-table"></div>
@@ -117,6 +119,55 @@ function setStatus(
   el.className = `file-status${cls ? " " + cls : ""}`;
 }
 
+function renderCsvWarnings(key: FileSlot["key"], warnings: CsvWarning[]): void {
+  const container = document.getElementById(`warnings-${key}`)!;
+  container.innerHTML = "";
+
+  if (warnings.length === 0) return;
+
+  const details = document.createElement("details");
+  details.className = "rule-explainer csv-warnings";
+
+  const summary = document.createElement("summary");
+  summary.textContent = `${warnings.length} row${
+    warnings.length === 1 ? "" : "s"
+  } had formatting issues`;
+  details.appendChild(summary);
+
+  for (const warning of warnings) {
+    const entry = document.createElement("div");
+    entry.className = "csv-warning-entry";
+
+    const explanation = document.createElement("p");
+    explanation.className = "csv-warning-explanation";
+    explanation.textContent = `Line ${warning.rowIndex + 2} of the file: ${
+      warning.explanation
+    }`;
+    entry.appendChild(explanation);
+
+    const nonEmptyFields = Object.entries(warning.row ?? {}).filter(
+      ([, value]) => value !== undefined && value !== ""
+    );
+    if (nonEmptyFields.length > 0) {
+      const dl = document.createElement("dl");
+      dl.className = "csv-warning-fields";
+      for (const [fieldName, value] of nonEmptyFields) {
+        const dt = document.createElement("dt");
+        dt.textContent = fieldName;
+        const dd = document.createElement("dd");
+        dd.textContent = value;
+        dl.appendChild(dt);
+        dl.appendChild(dd);
+      }
+      entry.appendChild(dl);
+    }
+
+    details.appendChild(entry);
+  }
+
+  container.appendChild(details);
+}
+
 for (const slot of SLOTS) {
   const input = document.getElementById(
     `file-${slot.key}`
@@ -127,22 +178,23 @@ for (const slot of SLOTS) {
 
     errorBanner.style.display = "none";
     setStatus(slot.key, `Reading ${file.name}...`);
+    renderCsvWarnings(slot.key, []);
 
     try {
       const text = await file.text();
-      const { rows, warningRowCount } = parseCsv(text);
+      const { rows, warnings } = parseCsv(text);
       loadedRows.set(slot.key, rows);
-      warningCounts.set(slot.key, warningRowCount);
 
-      if (warningRowCount > 0) {
+      if (warnings.length > 0) {
         setStatus(
           slot.key,
-          `${file.name} — ${rows.length} rows (${warningRowCount} had formatting issues)`,
+          `${file.name} — ${rows.length} rows (${warnings.length} had formatting issues)`,
           "warning"
         );
       } else {
         setStatus(slot.key, `${file.name} — ${rows.length} rows`, "loaded");
       }
+      renderCsvWarnings(slot.key, warnings);
     } catch (err) {
       loadedRows.delete(slot.key);
       setStatus(slot.key, `Failed to read ${file.name}`);
@@ -185,8 +237,7 @@ const dedupedViolationColumns: Column<DedupedViolationRow>[] = [
   { header: "Neuroreader Billed At Stellar Chance", get: (r) => r.neuroreaderAtStellarChance },
 ];
 
-const mismatchColumns: Column<MismatchRow>[] = [
-  { header: "Event ID", get: (r) => r.eventId },
+const mismatchColumns: Column<DedupedMismatchRow>[] = [
   { header: "Protocol Number", get: (r) => r.protocolNumber },
   { header: "No CAMS Match", get: (r) => r.noCamsMatch },
   { header: "No Active RedCap Match", get: (r) => r.noActiveRedcapMatch },
@@ -262,7 +313,7 @@ function renderTable<T>(
 
 let lastViolations: ViolationRow[] = [];
 let lastDedupedViolations: DedupedViolationRow[] = [];
-let lastMismatches: MismatchRow[] = [];
+let lastDedupedMismatches: DedupedMismatchRow[] = [];
 let lastScannerEvents: ScannerEventRow[] = [];
 let lastAddOns: AddOnWithoutMriRow[] = [];
 
@@ -274,11 +325,11 @@ runButton.addEventListener("click", () => {
     const camsRows = loadedRows.get("cams")!;
     const redcapRows = loadedRows.get("redcap")!;
 
-    const { violations, dedupedViolations, mismatches, scannerEvents, addOnsWithoutMri } =
+    const { violations, dedupedViolations, dedupedMismatches, scannerEvents, addOnsWithoutMri } =
       runAudit(dogfishRows, camsRows, redcapRows);
     lastViolations = violations;
     lastDedupedViolations = dedupedViolations;
-    lastMismatches = mismatches;
+    lastDedupedMismatches = dedupedMismatches;
     lastScannerEvents = scannerEvents;
     lastAddOns = addOnsWithoutMri;
 
@@ -290,7 +341,7 @@ runButton.addEventListener("click", () => {
     )!.textContent = `(${dedupedViolations.length})`;
     document.getElementById(
       "mismatch-count"
-    )!.textContent = `(${mismatches.length})`;
+    )!.textContent = `(${dedupedMismatches.length})`;
     document.getElementById(
       "scanner-event-count"
     )!.textContent = `(${scannerEvents.length})`;
@@ -313,7 +364,7 @@ runButton.addEventListener("click", () => {
     renderTable(
       "mismatches-table",
       mismatchColumns,
-      mismatches,
+      dedupedMismatches,
       "No mismatches found."
     );
     renderTable(
@@ -350,7 +401,10 @@ document
   });
 
 document.getElementById("export-mismatches")!.addEventListener("click", () => {
-  downloadCsv("audit_mismatches.csv", toCsv(mismatchColumns, lastMismatches));
+  downloadCsv(
+    "audit_mismatches.csv",
+    toCsv(mismatchColumns, lastDedupedMismatches)
+  );
 });
 
 document

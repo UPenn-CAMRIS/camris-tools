@@ -55,6 +55,11 @@ export interface MismatchRow {
   invalidProtocolFormat: boolean;
 }
 
+/** Same mismatch flags as MismatchRow, but deduped across events: one row
+ * per distinct (protocol number, mismatch flags) combination, dropping
+ * Event ID. */
+export type DedupedMismatchRow = Omit<MismatchRow, "eventId">;
+
 /** One row per raw Dogfish CSV row on the target scanner — unlike the
  * violation/mismatch tables, this is not deduped or grouped by Event ID and
  * includes no-show/cancellation rows that the audit rules otherwise ignore. */
@@ -84,6 +89,7 @@ export interface AuditResult {
   violations: ViolationRow[];
   dedupedViolations: DedupedViolationRow[];
   mismatches: MismatchRow[];
+  dedupedMismatches: DedupedMismatchRow[];
   scannerEvents: ScannerEventRow[];
   addOnsWithoutMri: AddOnWithoutMriRow[];
 }

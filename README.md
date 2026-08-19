@@ -19,6 +19,11 @@ Upload three CSV exports for the same period:
 - **RedCap Export** — CAMRIS application/review data, including which fees a
   protocol's approved review letter authorizes
 
+If a file has malformed rows (e.g. an unescaped quote inside a field), parsing
+still continues on a best-effort basis, and an expandable box appears under
+that file's upload row listing which rows were affected, why, and their
+(non-empty) parsed values — so you can decide whether to fix the source file.
+
 The tool matches events to their protocol's CAMS and RedCap records (by a
 normalized protocol number) and flags:
 
@@ -33,16 +38,16 @@ each results table in the app itself.
 
 ## Output tables
 
-1. **Violations by Protocol (deduped)** — one row per distinct
+1. **Violations by Protocol** — one row per distinct
    `(protocol, violation combination)`, Event ID dropped. Good for seeing which
    protocols have a given problem.
 2. **Violations by Event** — one row per billing event, for tracing a specific
    charge back to a specific scan.
-3. **Mismatches** — events that couldn't be fully checked because their
-   protocol wasn't found in CAMS, wasn't found in an active ("Complete")
-   RedCap review, or has a protocol number that doesn't match the expected
-   format. (Animal protocols showing "no active RedCap match" is expected —
-   RedCap only tracks human IRB applications.)
+3. **Mismatches** — protocols that couldn't be fully checked because they
+   weren't found in CAMS, weren't found in an active ("Complete") RedCap
+   review, or have a protocol number that doesn't match an expected format.
+   Deduped to one row per protocol. (Animal protocols showing "no active
+   RedCap match" is expected — RedCap only tracks human IRB applications.)
 4. **SC7T Scanner Events** — every raw Dogfish row on the SC7T scanner,
    including no-shows and cancellations, unfiltered by any audit rule.
 5. **Add-On Fees Without MRI** — events billed for a Stimulus/Response
