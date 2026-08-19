@@ -32,9 +32,11 @@ const STELLAR_CHANCE_SCANNERS = new Set(["SC3T", "SC7T"]);
 const SIX_DIGIT_PREFIX = /^\d{6}/;
 const ANIMAL_PROTOCOL = /^AR\d{6}/;
 const YEAR_SEQUENCE_PROTOCOL = /^\d{2}-\d{4}/;
-// RedCap's irb_protocol_number is free text; the real protocol number is a
-// 6-digit run starting with "8" appearing anywhere in the string.
-const REDCAP_IRB_NUMBER = /8\d{5}/;
+const PROTOCOL_FORMAT_PREFIXES = [
+  SIX_DIGIT_PREFIX,
+  ANIMAL_PROTOCOL,
+  YEAR_SEQUENCE_PROTOCOL,
+];
 
 function emptyFlags(): ServiceFlags {
   return {
@@ -80,9 +82,28 @@ function normalizeDogfishCamsProtocol(rawProtocolNumber: string): string {
   return match ? match[0] : rawProtocolNumber;
 }
 
+/** RedCap's irb_protocol_number is free text, not a clean field. If it
+ * starts with a recognized protocol format, use that — handles clean values
+ * and ones with trailing notes (e.g. "26-5894 (reliance agreement; penn not
+ * IRB of record)"). Otherwise the number is usually embedded after other
+ * text, like a PI name ("832748_Prodev"); prefer a parenthesized number
+ * when present, since that's the convention this data uses to cite the
+ * real protocol number when the field otherwise holds something else (e.g.
+ * "CHOP_14-011487 (821881)" — the CHOP number isn't the one we want), else
+ * fall back to the first standalone 6-digit run. */
 function extractRedcapProtocol(rawIrbNumber: string): string {
-  const match = rawIrbNumber.match(REDCAP_IRB_NUMBER);
-  return match ? match[0] : rawIrbNumber;
+  for (const pattern of PROTOCOL_FORMAT_PREFIXES) {
+    const match = rawIrbNumber.match(pattern);
+    if (match) return match[0];
+  }
+
+  const parenMatch = rawIrbNumber.match(/\((\d{6})\)/);
+  if (parenMatch) return parenMatch[1];
+
+  const embeddedMatch = rawIrbNumber.match(/\d{6}/);
+  if (embeddedMatch) return embeddedMatch[0];
+
+  return rawIrbNumber;
 }
 
 interface DogfishEvent {
