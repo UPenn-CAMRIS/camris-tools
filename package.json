@@ -1,0 +1,20 @@
+{
+  "name": "camris-audit-tool",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "test": "tsx test/run_test_set_1.ts"
+  },
+  "dependencies": {
+    "papaparse": "^5.4.1"
+  },
+  "devDependencies": {
+    "@types/papaparse": "^5.3.14",
+    "tsx": "^4.19.1",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.10"
+  }
+}

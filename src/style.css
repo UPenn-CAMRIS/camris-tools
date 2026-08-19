@@ -1,0 +1,207 @@
+:root {
+  color-scheme: light dark;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --border: #ccc;
+  --bg-alt: #f4f4f4;
+  --danger: #b3261e;
+  --ok: #1e6b3c;
+}
+
+body {
+  margin: 0;
+  padding: 2rem;
+  max-width: 1100px;
+  margin-inline: auto;
+}
+
+h1 {
+  font-size: 1.5rem;
+  margin-bottom: 0.25rem;
+}
+
+.subtitle {
+  color: #666;
+  margin-top: 0;
+  margin-bottom: 1.5rem;
+}
+
+.upload-grid {
+  display: grid;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.upload-row {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.upload-row label {
+  font-weight: 600;
+  width: 180px;
+  flex-shrink: 0;
+}
+
+.upload-row .file-status {
+  color: #666;
+  font-size: 0.9rem;
+  flex-grow: 1;
+}
+
+.upload-row .file-status.loaded {
+  color: var(--ok);
+}
+
+.upload-row .file-status.warning {
+  color: #a06a00;
+}
+
+button {
+  cursor: pointer;
+  border: none;
+  border-radius: 6px;
+  padding: 0.6rem 1.2rem;
+  font-size: 1rem;
+  background: #2a5cdb;
+  color: white;
+}
+
+button:disabled {
+  background: #999;
+  cursor: not-allowed;
+}
+
+button.secondary {
+  background: #555;
+  padding: 0.4rem 0.9rem;
+  font-size: 0.9rem;
+}
+
+#run-audit {
+  margin-bottom: 1.5rem;
+}
+
+.error-banner {
+  background: #fdecea;
+  color: var(--danger);
+  border: 1px solid var(--danger);
+  border-radius: 6px;
+  padding: 0.75rem 1rem;
+  margin-bottom: 1.5rem;
+  white-space: pre-wrap;
+}
+
+.results {
+  display: none;
+}
+
+.results.visible {
+  display: block;
+}
+
+.results-section {
+  margin-bottom: 2rem;
+}
+
+.results-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
+}
+
+.results-section-header h2 {
+  font-size: 1.15rem;
+  margin: 0;
+}
+
+.results-section-header .count {
+  color: #666;
+  font-weight: normal;
+  font-size: 0.95rem;
+}
+
+.table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  max-height: 420px;
+  overflow-y: auto;
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 0.9rem;
+}
+
+th, td {
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+th {
+  position: sticky;
+  top: 0;
+  background: var(--bg-alt);
+}
+
+td.bool-true {
+  color: var(--ok);
+  font-weight: 600;
+}
+
+.empty-note {
+  color: #666;
+  padding: 0.75rem 1rem;
+  font-style: italic;
+}
+
+.table-note {
+  color: #666;
+  font-style: italic;
+  font-size: 0.9rem;
+  margin: 0.5rem 0 0;
+}
+
+.rule-explainer {
+  margin-top: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.6rem 1rem;
+}
+
+.rule-explainer summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: #444;
+}
+
+.rule-explainer[open] summary {
+  margin-bottom: 0.5rem;
+}
+
+.rule-explainer dl {
+  margin: 0;
+}
+
+.rule-explainer dt {
+  font-weight: 600;
+  margin-top: 0.75rem;
+}
+
+.rule-explainer dt:first-child {
+  margin-top: 0;
+}
+
+.rule-explainer dd {
+  margin: 0.15rem 0 0;
+  color: #444;
+  font-size: 0.92rem;
+}
