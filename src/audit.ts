@@ -26,11 +26,12 @@ export const TARGET_SCANNER = "SC7T";
 const NEUROREADER_SERVICE = "Research Report Reader Fee";
 const STELLAR_CHANCE_SCANNERS = new Set(["SC3T", "SC7T"]);
 
-// Dogfish/CAMS protocol numbers are either a bare 6-digit number (optionally
-// with a suffix like "_7X" that this strips) or an animal protocol starting
-// with "AR" followed by 6 digits.
+// Dogfish/CAMS protocol numbers are a bare 6-digit number (optionally with a
+// suffix like "_7X" that this strips), an animal protocol starting with "AR"
+// followed by 6 digits, or a "xx-xxxx" (2 digits, hyphen, 4 digits) number.
 const SIX_DIGIT_PREFIX = /^\d{6}/;
 const ANIMAL_PROTOCOL = /^AR\d{6}/;
+const YEAR_SEQUENCE_PROTOCOL = /^\d{2}-\d{4}/;
 // RedCap's irb_protocol_number is free text; the real protocol number is a
 // 6-digit run starting with "8" appearing anywhere in the string.
 const REDCAP_IRB_NUMBER = /8\d{5}/;
@@ -66,7 +67,8 @@ function isAnimalProtocolFormat(rawProtocolNumber: string): boolean {
 function isValidProtocolFormat(rawProtocolNumber: string): boolean {
   return (
     SIX_DIGIT_PREFIX.test(rawProtocolNumber) ||
-    ANIMAL_PROTOCOL.test(rawProtocolNumber)
+    ANIMAL_PROTOCOL.test(rawProtocolNumber) ||
+    YEAR_SEQUENCE_PROTOCOL.test(rawProtocolNumber)
   );
 }
 

@@ -65,7 +65,7 @@ export const MISMATCH_RULE_EXPLANATIONS: RuleExplanation[] = [
   {
     label: "Invalid Protocol Format",
     description:
-      'The protocol number does not match either expected format — a plain 6-digit number, or "AR" followed by 6 digits — so it may be mistyped or entered inconsistently in Dogfish.',
+      'The protocol number does not match any expected format — a plain 6-digit number, "AR" followed by 6 digits, or "xx-xxxx" (2 digits, hyphen, 4 digits) — so it may be mistyped or entered inconsistently in Dogfish.',
   },
 ];
 
