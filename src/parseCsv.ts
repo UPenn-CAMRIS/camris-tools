@@ -2,8 +2,8 @@ import Papa from "papaparse";
 
 export type CsvRow = Record<string, string>;
 
-/** Human-readable explanations for PapaParse's error codes, shown to the
- * user instead of (or alongside) its raw technical message. */
+/** Plain-English explanations for PapaParse's error codes. The UI shows
+ * these instead of, or next to, PapaParse's raw technical message. */
 const ISSUE_EXPLANATIONS: Record<string, string> = {
   TooFewFields:
     "This row has fewer columns than the header row — a value may be missing, or a quoted field on an earlier line didn't fully contain a line break.",
@@ -24,7 +24,8 @@ function describeCsvIssue(code: string | undefined, message: string): string {
 export interface CsvWarning {
   /** 0-based index into the returned `rows` array. */
   rowIndex: number;
-  /** PapaParse's best-effort parse of the malformed row, if it recovered one. */
+  /** PapaParse's best-effort parse of the malformed row, if PapaParse
+   * recovered one. */
   row: CsvRow | undefined;
   /** Plain-English explanation of what's wrong with this row. */
   explanation: string;
@@ -32,9 +33,10 @@ export interface CsvWarning {
 
 export interface ParsedCsv {
   rows: CsvRow[];
-  /** Rows PapaParse flagged as malformed (e.g. an unescaped quote inside a
-   * free-text field). PapaParse still recovers a best-effort row for these,
-   * so parsing continues, but callers may want to warn the user. */
+  /** Rows PapaParse flagged as malformed, for example a row with an
+   * unescaped quote inside a free-text field. PapaParse still recovers a
+   * best-effort row for these, so parsing continues. Callers may still
+   * want to warn the user. */
   warnings: CsvWarning[];
 }
 

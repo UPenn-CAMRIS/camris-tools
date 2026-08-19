@@ -4,6 +4,7 @@ import { runAudit, TARGET_SCANNER } from "./audit";
 import { toCsv, downloadCsv, type Column } from "./csvExport";
 import type {
   AddOnWithoutMriRow,
+  AuditResult,
   DedupedMismatchRow,
   DedupedViolationRow,
   ScannerEventRow,
@@ -18,14 +19,13 @@ import {
 interface FileSlot {
   key: "dogfish" | "cams" | "redcap";
   label: string;
-  filename: string;
   accept: string;
 }
 
 const SLOTS: FileSlot[] = [
-  { key: "dogfish", label: "Dogfish Events CSV", filename: "", accept: ".csv" },
-  { key: "cams", label: "CAMS Data CSV", filename: "", accept: ".csv" },
-  { key: "redcap", label: "RedCap Export CSV", filename: "", accept: ".csv" },
+  { key: "dogfish", label: "Dogfish Events CSV", accept: ".csv" },
+  { key: "cams", label: "CAMS Data CSV", accept: ".csv" },
+  { key: "redcap", label: "RedCap Export CSV", accept: ".csv" },
 ];
 
 const loadedRows = new Map<FileSlot["key"], CsvRow[]>();
@@ -117,6 +117,11 @@ function setStatus(
   const el = document.getElementById(`status-${key}`)!;
   el.textContent = text;
   el.className = `file-status${cls ? " " + cls : ""}`;
+}
+
+/** Sets a results-section count badge, for example "(3)". */
+function setCount(id: string, count: number): void {
+  document.getElementById(id)!.textContent = `(${count})`;
 }
 
 function renderCsvWarnings(key: FileSlot["key"], warnings: CsvWarning[]): void {
@@ -240,6 +245,7 @@ const dedupedViolationColumns: Column<DedupedViolationRow>[] = [
 
 const mismatchColumns: Column<DedupedMismatchRow>[] = [
   { header: "Protocol Number", get: (r) => r.protocolNumber },
+  { header: "Project Title", get: (r) => r.projectTitle, wrap: true },
   { header: "No CAMS Match", get: (r) => r.noCamsMatch },
   { header: "No Active RedCap Match", get: (r) => r.noActiveRedcapMatch },
   { header: "Invalid Protocol Format", get: (r) => r.invalidProtocolFormat },
@@ -280,31 +286,43 @@ function renderTable<T>(
     return;
   }
 
+  // This says whether each column holds boolean values. It checks the
+  // first row once, then reuses the result for every header and body
+  // cell in that column.
+  const isBoolColumn = columns.map(
+    (col) => typeof col.get(rows[0]) === "boolean"
+  );
+
   const table = document.createElement("table");
   const thead = document.createElement("thead");
   const headRow = document.createElement("tr");
-  for (const col of columns) {
+  columns.forEach((col, i) => {
     const th = document.createElement("th");
     th.textContent = col.header;
+    if (isBoolColumn[i]) th.className = "bool-cell";
     headRow.appendChild(th);
-  }
+  });
   thead.appendChild(headRow);
   table.appendChild(thead);
 
   const tbody = document.createElement("tbody");
   for (const row of rows) {
     const tr = document.createElement("tr");
-    for (const col of columns) {
+    columns.forEach((col, i) => {
       const td = document.createElement("td");
       const value = col.get(row);
-      if (typeof value === "boolean") {
+      const classes: string[] = [];
+      if (isBoolColumn[i]) {
         td.textContent = value ? "✓" : "";
-        td.className = value ? "bool-cell bool-true" : "bool-cell";
+        classes.push("bool-cell");
+        if (value) classes.push("bool-true");
       } else {
-        td.textContent = value;
+        td.textContent = value as string;
       }
+      if (col.wrap) classes.push("wrap-cell");
+      if (classes.length > 0) td.className = classes.join(" ");
       tr.appendChild(td);
-    }
+    });
     tbody.appendChild(tr);
   }
   table.appendChild(tbody);
@@ -312,11 +330,14 @@ function renderTable<T>(
   container.appendChild(table);
 }
 
-let lastViolations: ViolationRow[] = [];
-let lastDedupedViolations: DedupedViolationRow[] = [];
-let lastDedupedMismatches: DedupedMismatchRow[] = [];
-let lastScannerEvents: ScannerEventRow[] = [];
-let lastAddOns: AddOnWithoutMriRow[] = [];
+let lastResult: AuditResult = {
+  violations: [],
+  dedupedViolations: [],
+  mismatches: [],
+  dedupedMismatches: [],
+  scannerEvents: [],
+  addOnsWithoutMri: [],
+};
 
 runButton.addEventListener("click", () => {
   errorBanner.style.display = "none";
@@ -326,29 +347,20 @@ runButton.addEventListener("click", () => {
     const camsRows = loadedRows.get("cams")!;
     const redcapRows = loadedRows.get("redcap")!;
 
-    const { violations, dedupedViolations, dedupedMismatches, scannerEvents, addOnsWithoutMri } =
-      runAudit(dogfishRows, camsRows, redcapRows);
-    lastViolations = violations;
-    lastDedupedViolations = dedupedViolations;
-    lastDedupedMismatches = dedupedMismatches;
-    lastScannerEvents = scannerEvents;
-    lastAddOns = addOnsWithoutMri;
+    lastResult = runAudit(dogfishRows, camsRows, redcapRows);
+    const {
+      violations,
+      dedupedViolations,
+      dedupedMismatches,
+      scannerEvents,
+      addOnsWithoutMri,
+    } = lastResult;
 
-    document.getElementById(
-      "violation-count"
-    )!.textContent = `(${violations.length})`;
-    document.getElementById(
-      "deduped-violation-count"
-    )!.textContent = `(${dedupedViolations.length})`;
-    document.getElementById(
-      "mismatch-count"
-    )!.textContent = `(${dedupedMismatches.length})`;
-    document.getElementById(
-      "scanner-event-count"
-    )!.textContent = `(${scannerEvents.length})`;
-    document.getElementById(
-      "addon-count"
-    )!.textContent = `(${addOnsWithoutMri.length})`;
+    setCount("violation-count", violations.length);
+    setCount("deduped-violation-count", dedupedViolations.length);
+    setCount("mismatch-count", dedupedMismatches.length);
+    setCount("scanner-event-count", scannerEvents.length);
+    setCount("addon-count", addOnsWithoutMri.length);
 
     renderTable(
       "violations-table",
@@ -389,7 +401,10 @@ runButton.addEventListener("click", () => {
 });
 
 document.getElementById("export-violations")!.addEventListener("click", () => {
-  downloadCsv("audit_violations.csv", toCsv(violationColumns, lastViolations));
+  downloadCsv(
+    "audit_violations.csv",
+    toCsv(violationColumns, lastResult.violations)
+  );
 });
 
 document
@@ -397,14 +412,14 @@ document
   .addEventListener("click", () => {
     downloadCsv(
       "audit_violations_by_protocol.csv",
-      toCsv(dedupedViolationColumns, lastDedupedViolations)
+      toCsv(dedupedViolationColumns, lastResult.dedupedViolations)
     );
   });
 
 document.getElementById("export-mismatches")!.addEventListener("click", () => {
   downloadCsv(
     "audit_mismatches.csv",
-    toCsv(mismatchColumns, lastDedupedMismatches)
+    toCsv(mismatchColumns, lastResult.dedupedMismatches)
   );
 });
 
@@ -413,13 +428,13 @@ document
   .addEventListener("click", () => {
     downloadCsv(
       `${TARGET_SCANNER.toLowerCase()}_scanner_events.csv`,
-      toCsv(scannerEventColumns, lastScannerEvents)
+      toCsv(scannerEventColumns, lastResult.scannerEvents)
     );
   });
 
 document.getElementById("export-addons")!.addEventListener("click", () => {
   downloadCsv(
     "addons_without_mri.csv",
-    toCsv(addOnColumns, lastAddOns)
+    toCsv(addOnColumns, lastResult.addOnsWithoutMri)
   );
 });

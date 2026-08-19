@@ -24,12 +24,18 @@ const SERVICE_MAP: Record<string, keyof ServiceFlags> = {
 const NO_SHOW_SERVICE = "No Show/Cancellation Fee";
 export const TARGET_SCANNER = "SC7T";
 
-const NEUROREADER_SERVICE = "Research Report Reader Fee";
+// Derived from SERVICE_MAP instead of a separate literal, so the two
+// cannot drift apart if Dogfish ever renames this service.
+const NEUROREADER_SERVICE = Object.keys(SERVICE_MAP).find(
+  (service) => SERVICE_MAP[service] === "neuroreader"
+)!;
 const STELLAR_CHANCE_SCANNERS = new Set(["SC3T", "SC7T"]);
 
-// Dogfish/CAMS protocol numbers are a bare 6-digit number (optionally with a
-// suffix like "_7X" that this strips), an animal protocol starting with "AR"
-// followed by 6 digits, or a "xx-xxxx" (2 digits, hyphen, 4 digits) number.
+// Dogfish and CAMS protocol numbers use one of three formats:
+// - a 6-digit number, optionally followed by a suffix such as "_7X"
+//   (this code strips the suffix)
+// - an animal protocol: "AR" followed by 6 digits
+// - a "xx-xxxx" number: 2 digits, a hyphen, then 4 digits
 const SIX_DIGIT_PREFIX = /^\d{6}/;
 const ANIMAL_PROTOCOL = /^AR\d{6}/;
 const YEAR_SEQUENCE_PROTOCOL = /^\d{2}-\d{4}/;
@@ -38,6 +44,12 @@ const PROTOCOL_FORMAT_PREFIXES = [
   ANIMAL_PROTOCOL,
   YEAR_SEQUENCE_PROTOCOL,
 ];
+
+/** Reads a field from a raw CSV row. Returns "" if the field is missing,
+ * and trims whitespace either way. */
+function field(row: CsvRow, key: string): string {
+  return (row[key] ?? "").trim();
+}
 
 function emptyFlags(): ServiceFlags {
   return {
@@ -75,23 +87,28 @@ function isValidProtocolFormat(rawProtocolNumber: string): boolean {
   );
 }
 
-/** Normalizes a Dogfish/CAMS protocol number to its 6-digit base, stripping
- * suffixes. Values that don't start with 6 digits (e.g. animal protocols)
- * are returned unchanged, matching the source data's own convention. */
+/** Converts a Dogfish or CAMS protocol number to its 6-digit base. It
+ * strips any suffix. If a value does not start with 6 digits (for
+ * example, an animal protocol), the function returns it unchanged. This
+ * matches the convention already used in the source data. */
 function normalizeDogfishCamsProtocol(rawProtocolNumber: string): string {
   const match = rawProtocolNumber.match(SIX_DIGIT_PREFIX);
   return match ? match[0] : rawProtocolNumber;
 }
 
-/** RedCap's irb_protocol_number is free text, not a clean field. If it
- * starts with a recognized protocol format, use that — handles clean values
- * and ones with trailing notes (e.g. "26-5894 (reliance agreement; penn not
- * IRB of record)"). Otherwise the number is usually embedded after other
- * text, like a PI name ("832748_Prodev"); prefer a parenthesized number
- * when present, since that's the convention this data uses to cite the
- * real protocol number when the field otherwise holds something else (e.g.
- * "CHOP_14-011487 (821881)" — the CHOP number isn't the one we want), else
- * fall back to the first standalone 6-digit run. */
+/** RedCap's irb_protocol_number field holds free text, not a clean value.
+ * This function extracts the real protocol number in three steps, in order:
+ *
+ * 1. If the value starts with a recognized protocol format, use that. This
+ *    handles clean values and values with trailing notes (for example,
+ *    "26-5894 (reliance agreement; penn not IRB of record)").
+ * 2. Otherwise, look for a number in parentheses. RedCap uses this to give
+ *    the real protocol number when the rest of the field holds something
+ *    else, such as a CHOP protocol number (for example,
+ *    "CHOP_14-011487 (821881)" — 821881 is the number we want, not 011487).
+ * 3. Otherwise, use the first standalone 6-digit run in the value (for
+ *    example, "832748_Prodev" after a PI's name).
+ */
 function extractRedcapProtocol(rawIrbNumber: string): string {
   for (const pattern of PROTOCOL_FORMAT_PREFIXES) {
     const match = rawIrbNumber.match(pattern);
@@ -111,6 +128,7 @@ interface DogfishEvent {
   eventId: string;
   protocolNumberRaw: string;
   scanTime: string;
+  projectTitle: string;
   flags: ServiceFlags;
   neuroreaderAtStellarChance: boolean;
 }
@@ -119,15 +137,16 @@ function buildDogfishEvents(dogfishRows: CsvRow[]): DogfishEvent[] {
   const eventsById = new Map<string, DogfishEvent>();
 
   for (const row of dogfishRows) {
-    const service = (row["Service"] ?? "").trim();
+    const service = field(row, "Service");
     if (service === NO_SHOW_SERVICE) continue;
 
-    const eventId = (row["Event ID"] ?? "").trim();
+    const eventId = field(row, "Event ID");
     if (eventId === "") continue;
 
-    const protocolNumberRaw = (row["Protocol Number"] ?? "").trim();
-    const scanTime = (row["Scan Time"] ?? "").trim();
-    const scanner = (row["Scanner"] ?? "").trim();
+    const protocolNumberRaw = field(row, "Protocol Number");
+    const scanTime = field(row, "Scan Time");
+    const projectTitle = field(row, "Project Title");
+    const scanner = field(row, "Scanner");
 
     const flagKey = SERVICE_MAP[service];
     const rowFlags = emptyFlags();
@@ -145,6 +164,7 @@ function buildDogfishEvents(dogfishRows: CsvRow[]): DogfishEvent[] {
         eventId,
         protocolNumberRaw,
         scanTime,
+        projectTitle,
         flags: rowFlags,
         neuroreaderAtStellarChance: rowNeuroreaderAtStellarChance,
       });
@@ -158,18 +178,18 @@ function buildScannerEvents(dogfishRows: CsvRow[]): ScannerEventRow[] {
   const rows: ScannerEventRow[] = [];
 
   for (const row of dogfishRows) {
-    const scanner = (row["Scanner"] ?? "").trim();
+    const scanner = field(row, "Scanner");
     if (scanner !== TARGET_SCANNER) continue;
 
     rows.push({
-      eventId: (row["Event ID"] ?? "").trim(),
-      protocolNumber: (row["Protocol Number"] ?? "").trim(),
-      service: (row["Service"] ?? "").trim(),
-      scanTime: (row["Scan Time"] ?? "").trim(),
-      quantity: (row["Quantity"] ?? "").trim(),
-      mandatoryService: (row["Mandatory Service"] ?? "").trim(),
-      schedulingUser: (row["Scheduling User"] ?? "").trim(),
-      checkInUser: (row["Check-In User"] ?? "").trim(),
+      eventId: field(row, "Event ID"),
+      protocolNumber: field(row, "Protocol Number"),
+      service: field(row, "Service"),
+      scanTime: field(row, "Scan Time"),
+      quantity: field(row, "Quantity"),
+      mandatoryService: field(row, "Mandatory Service"),
+      schedulingUser: field(row, "Scheduling User"),
+      checkInUser: field(row, "Check-In User"),
     });
   }
 
@@ -186,10 +206,10 @@ function hasMriService(flags: ServiceFlags): boolean {
   );
 }
 
-/** Stimulus/Neuroreader fees are meant to accompany a scan on the same
- * event. One billed with no MRI service code alongside it is a
- * data-quality flag, independent of whether it's also a CAMS/RedCap
- * mismatch or violation. */
+/** A Stimulus or Neuroreader fee should accompany a scan on the same
+ * event. A fee billed with no MRI service code on that event is a
+ * data-quality flag. This is true even if the event is also a CAMS or
+ * RedCap mismatch or violation. */
 function buildAddOnsWithoutMri(events: DogfishEvent[]): AddOnWithoutMriRow[] {
   const rows: AddOnWithoutMriRow[] = [];
 
@@ -217,15 +237,16 @@ function buildCamsLookup(camsRows: CsvRow[]): Map<string, CamsRecord> {
   const lookup = new Map<string, CamsRecord>();
 
   for (const row of camsRows) {
-    const rawProtocol = (row["Protocol Number"] ?? "").trim();
+    const rawProtocol = field(row, "Protocol Number");
     if (rawProtocol === "") continue;
 
     const normalized = normalizeDogfishCamsProtocol(rawProtocol);
-    // First matching record wins, matching how the RedCap side collapses
-    // duplicates via "first"/"last" in the original audit logic.
+    // The first matching record wins. The RedCap lookup below also
+    // collapses duplicate records this way, matching the original
+    // Julia audit script.
     if (!lookup.has(normalized)) {
       lookup.set(normalized, {
-        industrySponsored: (row["Industry Sponsored"] ?? "").trim(),
+        industrySponsored: field(row, "Industry Sponsored"),
       });
     }
   }
@@ -245,20 +266,18 @@ function buildRedcapLookup(redcapRows: CsvRow[]): Map<string, RedcapRecord> {
   const lookup = new Map<string, RedcapRecord>();
 
   for (const row of redcapRows) {
-    const complete = (row["camris_review_letter_complete"] ?? "").trim();
+    const complete = field(row, "camris_review_letter_complete");
     if (complete !== REDCAP_REVIEW_LETTER_COMPLETE) continue;
 
-    const rawIrb = (row["irb_protocol_number"] ?? "").trim();
+    const rawIrb = field(row, "irb_protocol_number");
     if (rawIrb === "") continue;
 
     const protocolNumber = extractRedcapProtocol(rawIrb);
 
-    // Last matching "complete" row for a protocol wins.
+    // The last matching "complete" row for a protocol wins.
     lookup.set(protocolNumber, {
-      neuroreader:
-        (row["fees_reviewletter___2"] ?? "").trim() === REDCAP_CHECKED,
-      stimulus:
-        (row["fees_reviewletter___6"] ?? "").trim() === REDCAP_CHECKED,
+      neuroreader: field(row, "fees_reviewletter___2") === REDCAP_CHECKED,
+      stimulus: field(row, "fees_reviewletter___6") === REDCAP_CHECKED,
     });
   }
 
@@ -301,10 +320,11 @@ function computeFlags(
   };
 }
 
-/** Drops Event ID and Scan Time (both unique per event, so keeping either
- * would defeat the dedup) and collapses violations down to unique
- * remaining-field combinations — used to go from a per-event table to a
- * per-protocol one. */
+/** Removes Event ID and Scan Time from each violation. It then collapses
+ * the rows into groups of unique remaining fields. Event ID and Scan Time
+ * are both unique per event, so keeping either field would prevent any
+ * grouping. Use this function to turn a per-event table into a
+ * per-protocol table. */
 function dedupeViolations(violations: ViolationRow[]): DedupedViolationRow[] {
   const seen = new Map<string, DedupedViolationRow>();
 
@@ -316,8 +336,8 @@ function dedupeViolations(violations: ViolationRow[]): DedupedViolationRow[] {
   return [...seen.values()];
 }
 
-/** Same idea as dedupeViolations, but for mismatches, which have no
- * per-event-only field besides Event ID to drop. */
+/** Works like dedupeViolations, but for mismatches. Mismatches have only
+ * one per-event field, Event ID, so this function drops just that field. */
 function dedupeMismatches(mismatches: MismatchRow[]): DedupedMismatchRow[] {
   const seen = new Map<string, DedupedMismatchRow>();
 
@@ -371,6 +391,7 @@ export function runAudit(
       mismatches.push({
         eventId: event.eventId,
         protocolNumber: event.protocolNumberRaw,
+        projectTitle: event.projectTitle,
         noCamsMatch,
         noActiveRedcapMatch,
         invalidProtocolFormat,

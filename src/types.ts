@@ -24,11 +24,14 @@ export interface ViolationRow {
 }
 
 /**
- * `undefined` on a boolean-ish field means "not computed" (the source data
- * needed to evaluate it was missing) rather than "false" (evaluated, no
- * violation). ViolationRow only ever contains `true`/`false` because a row
- * with any undefined field can't be conclusively flagged as a violation and
- * instead surfaces on the mismatch report.
+ * On a boolean-ish field, `undefined` means the check was not computed.
+ * This happens when the source data needed for the check is missing.
+ * `undefined` does not mean `false`. `false` means the check ran and found
+ * no violation.
+ *
+ * ViolationRow only ever holds `true` or `false` values. If any field
+ * would be `undefined`, the audit cannot conclusively flag that row as a
+ * violation. The row appears on the mismatch report instead.
  */
 export interface ComputedFlags {
   industryBilledAsGovernment: boolean | undefined;
@@ -42,29 +45,30 @@ export interface ComputedFlags {
   neuroreaderAtStellarChance: boolean;
 }
 
-/** Same violation flags as ViolationRow, but deduped across events: one row
- * per distinct (protocol number, violation flags) combination, dropping
- * Event ID and Scan Time (both unique per event, so keeping either would
- * defeat the dedup). Useful for seeing which protocols have a given
- * violation type without one row per billing event. */
+/** Holds the same violation flags as ViolationRow, but with one row per
+ * distinct protocol and violation-flag combination. It drops Event ID and
+ * Scan Time, since both are unique per event and would prevent any
+ * grouping. Use this type to see which protocols have a given violation,
+ * without one row per billing event. */
 export type DedupedViolationRow = Omit<ViolationRow, "eventId" | "scanTime">;
 
 export interface MismatchRow {
   eventId: string;
   protocolNumber: string;
+  projectTitle: string;
   noCamsMatch: boolean;
   noActiveRedcapMatch: boolean;
   invalidProtocolFormat: boolean;
 }
 
-/** Same mismatch flags as MismatchRow, but deduped across events: one row
- * per distinct (protocol number, mismatch flags) combination, dropping
- * Event ID. */
+/** Holds the same mismatch flags as MismatchRow, but with one row per
+ * distinct protocol and mismatch-flag combination. It drops Event ID. */
 export type DedupedMismatchRow = Omit<MismatchRow, "eventId">;
 
-/** One row per raw Dogfish CSV row on the target scanner — unlike the
- * violation/mismatch tables, this is not deduped or grouped by Event ID and
- * includes no-show/cancellation rows that the audit rules otherwise ignore. */
+/** One row per raw Dogfish CSV row on the target scanner. Unlike the
+ * violation and mismatch tables, this list is not deduped or grouped by
+ * Event ID. It also includes no-show and cancellation rows, which the
+ * audit rules otherwise ignore. */
 export interface ScannerEventRow {
   eventId: string;
   protocolNumber: string;
@@ -76,10 +80,11 @@ export interface ScannerEventRow {
   checkInUser: string;
 }
 
-/** A Dogfish event (grouped by Event ID, no-shows excluded) that billed a
- * Stimulus and/or Neuroreader add-on fee but no main MRI service code —
- * these fees are meant to ride along with a scan, so one appearing alone is
- * a data-quality flag independent of the CAMS/RedCap checks. */
+/** A Dogfish event that billed a Stimulus fee, a Neuroreader fee, or
+ * both, but no main MRI service code. Events are grouped by Event ID,
+ * and no-shows are excluded. These fees should ride along with a scan.
+ * A fee with no scan is a data-quality flag, separate from the CAMS and
+ * RedCap checks. */
 export interface AddOnWithoutMriRow {
   eventId: string;
   protocolNumber: string;

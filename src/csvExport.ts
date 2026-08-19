@@ -1,6 +1,10 @@
 export interface Column<T> {
   header: string;
   get: (row: T) => string | boolean;
+  /** When true, this column's cell content can wrap onto multiple lines
+   * instead of staying on one line. Useful for long free-text values,
+   * such as a project title. */
+  wrap?: boolean;
 }
 
 function csvField(value: string | boolean): string {

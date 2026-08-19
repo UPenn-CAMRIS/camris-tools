@@ -196,6 +196,13 @@ td {
   white-space: nowrap;
 }
 
+td.wrap-cell {
+  white-space: normal;
+  word-break: normal;
+  overflow-wrap: normal;
+  max-width: 320px;
+}
+
 th {
   position: sticky;
   top: 0;
@@ -205,7 +212,7 @@ th {
   overflow-wrap: normal;
 }
 
-td.bool-cell {
+.bool-cell {
   text-align: center;
 }
 
