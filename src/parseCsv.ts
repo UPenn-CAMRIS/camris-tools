@@ -117,13 +117,41 @@ export interface RowDiagnosis {
   highlightOffset: number | undefined;
 }
 
+/** PapaParse's `error.index` marks the start of the field it flagged —
+ * the character right after that field's opening quote — not the
+ * stray quote itself. From there, this walks forward through the
+ * field the same way a CSV reader does: a doubled `""` is an escaped
+ * literal quote and gets skipped, so the first single, undoubled `"`
+ * it reaches is the exact character where the field's quoting broke.
+ * Returns undefined if `fieldStart` doesn't actually sit right after
+ * an opening quote (so the position can't be trusted), or if the scan
+ * reaches the end of the row without finding one. */
+function findStrayQuote(
+  rawText: string,
+  fieldStart: number,
+  rowEnd: number
+): number | undefined {
+  if (rawText[fieldStart - 1] !== '"') return undefined;
+
+  let i = fieldStart;
+  while (i < rowEnd) {
+    if (rawText[i] === '"') {
+      if (rawText[i + 1] === '"') {
+        i += 2;
+        continue;
+      }
+      return i;
+    }
+    i++;
+  }
+  return undefined;
+}
+
 export function diagnoseWarning(
   parsed: ParsedCsv,
   warning: CsvWarning
 ): RowDiagnosis {
   const span = parsed.rowSpans[warning.rowIndex];
-  const highlightOffset =
-    warning.index !== undefined ? warning.index - span.start : undefined;
 
   const fieldCountMatch = /expected (\d+) fields but parsed (\d+)/.exec(
     warning.rawMessage
@@ -131,17 +159,25 @@ export function diagnoseWarning(
 
   switch (warning.code) {
     case "MissingQuotes":
+    case "InvalidQuotes": {
+      const strayQuote =
+        warning.index !== undefined
+          ? findStrayQuote(parsed.rawText, warning.index, span.end)
+          : undefined;
+      const highlightOffset =
+        strayQuote !== undefined ? strayQuote - span.start : undefined;
+      const located =
+        highlightOffset !== undefined
+          ? " The stray quote is highlighted below."
+          : "";
       return {
         message:
-          "A quoted field opens with a double quote but never closes — everything after the highlighted character was read as part of that one field, including any line breaks.",
+          warning.code === "MissingQuotes"
+            ? `A quoted field opens with a double quote but never closes.${located} Inside a quoted field, a literal " must be written as two double quotes ("").`
+            : `A double quote inside a quoted field ends it early because it isn't doubled.${located} Inside a quoted field, a literal " must be written as two double quotes ("").`,
         highlightOffset,
       };
-    case "InvalidQuotes":
-      return {
-        message:
-          'A double quote shows up where PapaParse did not expect one. Inside a quoted field, a literal " must be written as two double quotes ("") — a single one ends the field early.',
-        highlightOffset,
-      };
+    }
     case "TooFewFields": {
       const [, expected, actual] = fieldCountMatch ?? [];
       return {

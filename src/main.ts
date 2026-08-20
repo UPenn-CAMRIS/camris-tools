@@ -206,7 +206,11 @@ function buildWarningEntry(
 
   if (diagnosis.highlightOffset !== undefined) {
     entry.appendChild(
-      buildHighlightedRow("Malformed row", current, diagnosis.highlightOffset)
+      buildHighlightedRow(
+        "Stray quote",
+        current,
+        diagnosis.highlightOffset
+      )
     );
   }
 
