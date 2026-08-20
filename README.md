@@ -6,9 +6,8 @@ rule evaluation happen entirely in the browser via the File API. No data is ever
 uploaded anywhere; the app can be hosted on any static webserver (or run
 offline from `file://`, with caveats — see [Running it](#running-it)).
 
-It's a reimplementation of the logic in [`test_set_1/Audit.jl`](test_set_1/Audit.jl)
-(the original Julia audit script), rebuilt so non-technical staff can run it
-from a browser without a Julia environment.
+It's a reimplementation of an original Julia audit script, rebuilt so
+non-technical staff can run it from a browser without a Julia environment.
 
 ## What it checks
 
@@ -90,7 +89,7 @@ src/
   style.css
 test/
   run_test_set_1.ts    runs the engine against test_set_1/ from Node for fast iteration
-test_set_1/             sample data + the original Julia script this tool replaces
+test_set_1/             sample CSV data for testing
 ```
 
 `audit.ts` is framework-agnostic (no DOM dependency), which is what lets
