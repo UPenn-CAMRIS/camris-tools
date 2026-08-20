@@ -26,6 +26,17 @@ export interface CsvWarning {
   rowIndex: number;
   /** Plain-English explanation of what's wrong with this row. */
   explanation: string;
+  /** PapaParse's standardized error code, for building a more specific
+   * diagnosis. Undefined for an error PapaParse didn't categorize. */
+  code: string | undefined;
+  /** Absolute character offset into `ParsedCsv.rawText` where PapaParse
+   * lost track of the row, for InvalidQuotes and MissingQuotes errors.
+   * PapaParse does not report a position for other error codes. */
+  index: number | undefined;
+  /** PapaParse's raw, technical error message, before mapping it to the
+   * plain-English `explanation`. For TooFewFields/TooManyFields this
+   * names the exact field counts, which the mapped explanation drops. */
+  rawMessage: string;
 }
 
 /** The raw character range in `rawText` that produced one parsed row.
@@ -50,6 +61,8 @@ export interface ParsedCsv {
   /** One entry per row in `rows`, giving that row's raw text range in
    * `rawText`. */
   rowSpans: RowSpan[];
+  /** Column names from the header row. */
+  fields: string[];
 }
 
 function headerLineEnd(text: string): number {
@@ -63,6 +76,7 @@ export function parseCsv(text: string): ParsedCsv {
   const rows: CsvRow[] = [];
   const warnings: CsvWarning[] = [];
   const rowSpans: RowSpan[] = [];
+  let fields: string[] = [];
   let cursor = headerLineEnd(rawText);
 
   Papa.parse<CsvRow>(rawText, {
@@ -73,20 +87,82 @@ export function parseCsv(text: string): ParsedCsv {
       rows.push(results.data);
       rowSpans.push({ start: cursor, end: results.meta.cursor });
       cursor = results.meta.cursor;
+      if (results.meta.fields) fields = results.meta.fields;
 
       if (results.errors.length > 0) {
+        const error = results.errors[0];
         warnings.push({
           rowIndex,
-          explanation: describeCsvIssue(
-            results.errors[0].code,
-            results.errors[0].message
-          ),
+          explanation: describeCsvIssue(error.code, error.message),
+          code: error.code,
+          index: error.index,
+          rawMessage: error.message,
         });
       }
     },
   });
 
-  return { rows, warnings, rawText, rowSpans };
+  return { rows, warnings, rawText, rowSpans, fields };
+}
+
+/** A specific, best-effort guess at what's wrong with a malformed row,
+ * built from PapaParse's error code and (when available) the character
+ * position where it lost track of the row. This is a heuristic guess,
+ * not a guarantee — PapaParse does not explain malformed CSV, it only
+ * reports where it gave up. */
+export interface RowDiagnosis {
+  message: string;
+  /** Character offset into this row's raw text to point out to the
+   * user, if PapaParse reported one for this error. */
+  highlightOffset: number | undefined;
+}
+
+export function diagnoseWarning(
+  parsed: ParsedCsv,
+  warning: CsvWarning
+): RowDiagnosis {
+  const span = parsed.rowSpans[warning.rowIndex];
+  const highlightOffset =
+    warning.index !== undefined ? warning.index - span.start : undefined;
+
+  const fieldCountMatch = /expected (\d+) fields but parsed (\d+)/.exec(
+    warning.rawMessage
+  );
+
+  switch (warning.code) {
+    case "MissingQuotes":
+      return {
+        message:
+          "A quoted field opens with a double quote but never closes — everything after the highlighted character was read as part of that one field, including any line breaks.",
+        highlightOffset,
+      };
+    case "InvalidQuotes":
+      return {
+        message:
+          'A double quote shows up where PapaParse did not expect one. Inside a quoted field, a literal " must be written as two double quotes ("") — a single one ends the field early.',
+        highlightOffset,
+      };
+    case "TooFewFields": {
+      const [, expected, actual] = fieldCountMatch ?? [];
+      return {
+        message: expected
+          ? `This row has ${actual} field(s) but the header has ${expected} — a value is probably missing, or a quoted field on this row absorbed a line break that belonged to the next row.`
+          : "This row has fewer fields than the header — a value is probably missing.",
+        highlightOffset: undefined,
+      };
+    }
+    case "TooManyFields": {
+      const [, expected, actual] = fieldCountMatch ?? [];
+      return {
+        message: expected
+          ? `This row has ${actual} field(s) but the header has ${expected} — a value likely contains a comma that should have been wrapped in double quotes.`
+          : "This row has more fields than the header — a value likely contains an unescaped comma.",
+        highlightOffset: undefined,
+      };
+    }
+    default:
+      return { message: warning.explanation, highlightOffset: undefined };
+  }
 }
 
 /** Raw text of the row at `rowIndex`, plus the row immediately before and

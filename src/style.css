@@ -115,6 +115,13 @@ h1 {
   color: #444;
 }
 
+.csv-warning-context pre mark {
+  background: var(--danger);
+  color: #fff;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
 .csv-warning-editor-label {
   display: block;
   font-size: 0.8rem;

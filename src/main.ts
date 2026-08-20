@@ -3,6 +3,8 @@ import {
   parseCsv,
   applyRowCorrection,
   rowContext,
+  diagnoseWarning,
+  type CsvWarning,
   type ParsedCsv,
 } from "./parseCsv";
 import { runAudit, TARGET_SCANNER } from "./audit";
@@ -169,33 +171,43 @@ function renderCsvWarnings(key: FileSlot["key"]): void {
   details.appendChild(summary);
 
   for (const warning of parsed.warnings) {
-    details.appendChild(buildWarningEntry(key, warning.rowIndex, warning.explanation));
+    details.appendChild(buildWarningEntry(key, warning));
   }
 
   container.appendChild(details);
 }
 
-/** Builds one malformed-row entry: an explanation, the raw text of the
- * row before and after for context, an editable copy of the row itself,
- * and a button to re-parse the whole file with the edit applied. */
+/** Builds one malformed-row entry: a specific guess at what went wrong,
+ * the raw text of the row before and after for context, an editable
+ * copy of the row itself, and a button to re-parse the whole file with
+ * the edit applied. */
 function buildWarningEntry(
   key: FileSlot["key"],
-  rowIndex: number,
-  explanation: string
+  warning: CsvWarning
 ): HTMLElement {
   const parsed = loadedFiles.get(key)!;
+  const rowIndex = warning.rowIndex;
   const { before, current, after } = rowContext(parsed, rowIndex);
+  const diagnosis = diagnoseWarning(parsed, warning);
 
   const entry = document.createElement("div");
   entry.className = "csv-warning-entry";
 
   const explanationEl = document.createElement("p");
   explanationEl.className = "csv-warning-explanation";
-  explanationEl.textContent = `Line ${rowIndex + 2} of the file: ${explanation}`;
+  explanationEl.textContent = `Line ${rowIndex + 2} of the file: ${
+    diagnosis.message
+  }`;
   entry.appendChild(explanationEl);
 
   if (before !== undefined) {
     entry.appendChild(buildContextLine("Row before", before));
+  }
+
+  if (diagnosis.highlightOffset !== undefined) {
+    entry.appendChild(
+      buildHighlightedRow("Malformed row", current, diagnosis.highlightOffset)
+    );
   }
 
   const editorLabel = document.createElement("label");
@@ -235,6 +247,32 @@ function buildContextLine(label: string, text: string): HTMLElement {
   labelEl.textContent = label;
   const pre = document.createElement("pre");
   pre.textContent = text;
+  wrap.appendChild(labelEl);
+  wrap.appendChild(pre);
+  return wrap;
+}
+
+/** Like buildContextLine, but marks the single character at `offset`
+ * so the user can see exactly where PapaParse lost track of the row. */
+function buildHighlightedRow(
+  label: string,
+  text: string,
+  offset: number
+): HTMLElement {
+  const wrap = document.createElement("div");
+  wrap.className = "csv-warning-context";
+  const labelEl = document.createElement("span");
+  labelEl.className = "csv-warning-context-label";
+  labelEl.textContent = label;
+  const pre = document.createElement("pre");
+
+  const clampedOffset = Math.max(0, Math.min(offset, text.length - 1));
+  pre.appendChild(document.createTextNode(text.slice(0, clampedOffset)));
+  const mark = document.createElement("mark");
+  mark.textContent = text.slice(clampedOffset, clampedOffset + 1) || " ";
+  pre.appendChild(mark);
+  pre.appendChild(document.createTextNode(text.slice(clampedOffset + 1)));
+
   wrap.appendChild(labelEl);
   wrap.appendChild(pre);
   return wrap;
