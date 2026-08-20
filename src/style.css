@@ -3,8 +3,17 @@
   font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
   --border: #ccc;
   --bg-alt: #f4f4f4;
+  --header-bg: #f4f4f4;
+  --header-fg: #1a1a1a;
   --danger: #b3261e;
   --ok: #1e6b3c;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --header-bg: #2b2b2b;
+    --header-fg: #f0f0f0;
+  }
 }
 
 body {
@@ -229,7 +238,8 @@ td.wrap-cell {
 th {
   position: sticky;
   top: 0;
-  background: var(--bg-alt);
+  background: var(--header-bg);
+  color: var(--header-fg);
   white-space: normal;
   word-break: normal;
   overflow-wrap: normal;
