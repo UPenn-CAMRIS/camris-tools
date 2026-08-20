@@ -288,6 +288,13 @@ function renderCsvWarnings(key: FileSlot["key"]): void {
   }
 
   container.appendChild(details);
+
+  // scrollHeight only reads correctly once the textarea has real layout,
+  // so size each one after it is in the live document, not while it is
+  // still being built.
+  for (const textarea of container.querySelectorAll(".csv-warning-editor")) {
+    autoGrowTextarea(textarea as HTMLTextAreaElement);
+  }
 }
 
 /** Builds one malformed-row entry: a specific guess at what went wrong,
@@ -335,7 +342,8 @@ function buildWarningEntry(
   const textarea = document.createElement("textarea");
   textarea.className = "csv-warning-editor";
   textarea.value = current;
-  textarea.rows = Math.max(2, current.split("\n").length);
+  textarea.rows = 2;
+  textarea.addEventListener("input", () => autoGrowTextarea(textarea));
   entry.appendChild(textarea);
 
   if (after !== undefined) {
@@ -354,6 +362,14 @@ function buildWarningEntry(
   entry.appendChild(reparseButton);
 
   return entry;
+}
+
+/** Grows a textarea to fit its content, including lines that wrap
+ * without a line break in the text. The `rows` attribute alone cannot
+ * do this, since it counts line breaks, not wrapped lines. */
+function autoGrowTextarea(textarea: HTMLTextAreaElement): void {
+  textarea.style.height = "auto";
+  textarea.style.height = `${textarea.scrollHeight}px`;
 }
 
 function buildContextLine(label: string, text: string): HTMLElement {
