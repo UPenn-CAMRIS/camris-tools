@@ -55,7 +55,7 @@ app.innerHTML = `
         <div class="upload-row">
           <label for="file-${slot.key}">${slot.label}</label>
           <input type="file" id="file-${slot.key}" accept="${slot.accept}" />
-          <span class="file-status" id="status-${slot.key}">No file selected</span>
+          <span class="file-status" id="status-${slot.key}"></span>
         </div>
         <div id="sanity-${slot.key}"></div>
         <div id="warnings-${slot.key}"></div>
@@ -435,6 +435,7 @@ const violationColumns: Column<ViolationRow>[] = [
   { header: "Event ID", get: (r) => r.eventId },
   { header: "Protocol Number", get: (r) => r.protocolNumber },
   { header: "Scan Time", get: (r) => r.scanTime },
+  { header: "Scanner", get: (r) => r.scanner },
   { header: "Industry Billed As Government", get: (r) => r.industryBilledAsGovernment },
   { header: "Government Billed As Industry", get: (r) => r.governmentBilledAsIndustry },
   { header: "Animal Billed As Human", get: (r) => r.animalBilledAsHuman },

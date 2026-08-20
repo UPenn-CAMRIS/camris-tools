@@ -129,6 +129,7 @@ interface DogfishEvent {
   protocolNumberRaw: string;
   scanTime: string;
   projectTitle: string;
+  scanner: string;
   flags: ServiceFlags;
   neuroreaderAtStellarChance: boolean;
 }
@@ -165,6 +166,7 @@ function buildDogfishEvents(dogfishRows: CsvRow[]): DogfishEvent[] {
         protocolNumberRaw,
         scanTime,
         projectTitle,
+        scanner,
         flags: rowFlags,
         neuroreaderAtStellarChance: rowNeuroreaderAtStellarChance,
       });
@@ -320,15 +322,21 @@ function computeFlags(
   };
 }
 
-/** Removes Event ID and Scan Time from each violation. It then collapses
- * the rows into groups of unique remaining fields. Event ID and Scan Time
- * are both unique per event, so keeping either field would prevent any
- * grouping. Use this function to turn a per-event table into a
- * per-protocol table. */
+/** Removes Event ID, Scan Time, and Scanner from each violation. It then
+ * collapses the rows into groups of unique remaining fields. Event ID
+ * and Scan Time are both unique per event, so keeping either field
+ * would prevent any grouping. Scanner can differ across a protocol's
+ * events, so it has no single correct value at the protocol level. Use
+ * this function to turn a per-event table into a per-protocol table. */
 function dedupeViolations(violations: ViolationRow[]): DedupedViolationRow[] {
   const seen = new Map<string, DedupedViolationRow>();
 
-  for (const { eventId: _eventId, scanTime: _scanTime, ...rest } of violations) {
+  for (const {
+    eventId: _eventId,
+    scanTime: _scanTime,
+    scanner: _scanner,
+    ...rest
+  } of violations) {
     const key = JSON.stringify(rest);
     if (!seen.has(key)) seen.set(key, rest);
   }
@@ -404,6 +412,7 @@ export function runAudit(
         eventId: event.eventId,
         protocolNumber: event.protocolNumberRaw,
         scanTime: event.scanTime,
+        scanner: event.scanner,
         industryBilledAsGovernment: computed.industryBilledAsGovernment === true,
         governmentBilledAsIndustry: computed.governmentBilledAsIndustry === true,
         animalBilledAsHuman: computed.animalBilledAsHuman,

@@ -12,6 +12,7 @@ export interface ViolationRow {
   eventId: string;
   protocolNumber: string;
   scanTime: string;
+  scanner: string;
   industryBilledAsGovernment: boolean;
   governmentBilledAsIndustry: boolean;
   animalBilledAsHuman: boolean;
@@ -46,11 +47,15 @@ export interface ComputedFlags {
 }
 
 /** Holds the same violation flags as ViolationRow, but with one row per
- * distinct protocol and violation-flag combination. It drops Event ID and
- * Scan Time, since both are unique per event and would prevent any
- * grouping. Use this type to see which protocols have a given violation,
- * without one row per billing event. */
-export type DedupedViolationRow = Omit<ViolationRow, "eventId" | "scanTime">;
+ * distinct protocol and violation-flag combination. It drops Event ID
+ * and Scan Time, since both are unique per event and would prevent any
+ * grouping. It also drops Scanner, since a protocol can be scanned on
+ * more than one scanner across its events. Use this type to see which
+ * protocols have a given violation, without one row per billing event. */
+export type DedupedViolationRow = Omit<
+  ViolationRow,
+  "eventId" | "scanTime" | "scanner"
+>;
 
 export interface MismatchRow {
   eventId: string;
