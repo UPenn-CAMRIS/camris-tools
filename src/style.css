@@ -83,28 +83,51 @@ h1 {
   margin: 0 0 0.35rem;
 }
 
-.csv-warning-fields {
-  display: grid;
-  grid-template-columns: max-content 1fr;
-  gap: 0.15rem 0.75rem;
-  margin: 0;
-  font-size: 0.85rem;
-  max-height: 160px;
-  overflow-y: auto;
+.csv-warning-context {
+  margin: 0 0 0.35rem;
 }
 
-.csv-warning-fields dt {
+.csv-warning-context-label {
+  display: block;
+  font-size: 0.8rem;
   font-weight: 600;
   color: #666;
-  margin: 0;
-  font-size: inherit;
+  margin-bottom: 0.15rem;
 }
 
-.csv-warning-fields dd {
+.csv-warning-context pre {
   margin: 0;
-  color: #444;
-  font-size: inherit;
+  padding: 0.35rem 0.5rem;
+  background: #f4f4f4;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  white-space: pre-wrap;
   word-break: break-word;
+  color: #444;
+}
+
+.csv-warning-editor-label {
+  display: block;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #a06a00;
+  margin: 0.35rem 0 0.15rem;
+}
+
+.csv-warning-editor {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  font-family: monospace;
+  font-size: 0.85rem;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  resize: vertical;
+}
+
+.csv-warning-entry .secondary {
+  margin-top: 0.5rem;
 }
 
 button {

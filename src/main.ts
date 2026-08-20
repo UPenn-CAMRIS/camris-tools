@@ -1,5 +1,10 @@
 import "./style.css";
-import { parseCsv, type CsvRow, type CsvWarning } from "./parseCsv";
+import {
+  parseCsv,
+  applyRowCorrection,
+  rowContext,
+  type ParsedCsv,
+} from "./parseCsv";
 import { runAudit, TARGET_SCANNER } from "./audit";
 import { toCsv, downloadCsv, type Column } from "./csvExport";
 import type {
@@ -28,7 +33,7 @@ const SLOTS: FileSlot[] = [
   { key: "redcap", label: "REDCap Export CSV", accept: ".csv" },
 ];
 
-const loadedRows = new Map<FileSlot["key"], CsvRow[]>();
+const loadedFiles = new Map<FileSlot["key"], ParsedCsv>();
 
 const app = document.getElementById("app")!;
 app.innerHTML = `
@@ -105,8 +110,10 @@ const runButton = document.getElementById("run-audit") as HTMLButtonElement;
 const errorBanner = document.getElementById("error-banner")!;
 const resultsEl = document.getElementById("results")!;
 
+const loadedFilenames = new Map<FileSlot["key"], string>();
+
 function updateRunButtonState(): void {
-  runButton.disabled = SLOTS.some((slot) => !loadedRows.has(slot.key));
+  runButton.disabled = SLOTS.some((slot) => !loadedFiles.has(slot.key));
 }
 
 function setStatus(
@@ -124,53 +131,113 @@ function setCount(id: string, count: number): void {
   document.getElementById(id)!.textContent = `(${count})`;
 }
 
-function renderCsvWarnings(key: FileSlot["key"], warnings: CsvWarning[]): void {
+/** Updates the status line and warnings box for `key` from whatever is
+ * currently stored in `loadedFiles`. Call this after loading a file, and
+ * again after a row correction changes the stored parse result. */
+function refreshFileDisplay(key: FileSlot["key"]): void {
+  const parsed = loadedFiles.get(key);
+  const filename = loadedFilenames.get(key) ?? "file";
+  if (!parsed) return;
+
+  if (parsed.warnings.length > 0) {
+    setStatus(
+      key,
+      `${filename} — ${parsed.rows.length} rows (${parsed.warnings.length} had formatting issues)`,
+      "warning"
+    );
+  } else {
+    setStatus(key, `${filename} — ${parsed.rows.length} rows`, "loaded");
+  }
+  renderCsvWarnings(key);
+}
+
+function renderCsvWarnings(key: FileSlot["key"]): void {
   const container = document.getElementById(`warnings-${key}`)!;
   container.innerHTML = "";
 
-  if (warnings.length === 0) return;
+  const parsed = loadedFiles.get(key);
+  if (!parsed || parsed.warnings.length === 0) return;
 
   const details = document.createElement("details");
   details.className = "detail-box csv-warnings";
+  details.open = true;
 
   const summary = document.createElement("summary");
-  summary.textContent = `${warnings.length} row${
-    warnings.length === 1 ? "" : "s"
+  summary.textContent = `${parsed.warnings.length} row${
+    parsed.warnings.length === 1 ? "" : "s"
   } had formatting issues`;
   details.appendChild(summary);
 
-  for (const warning of warnings) {
-    const entry = document.createElement("div");
-    entry.className = "csv-warning-entry";
-
-    const explanation = document.createElement("p");
-    explanation.className = "csv-warning-explanation";
-    explanation.textContent = `Line ${warning.rowIndex + 2} of the file: ${
-      warning.explanation
-    }`;
-    entry.appendChild(explanation);
-
-    const nonEmptyFields = Object.entries(warning.row ?? {}).filter(
-      ([, value]) => value !== undefined && value !== ""
-    );
-    if (nonEmptyFields.length > 0) {
-      const dl = document.createElement("dl");
-      dl.className = "csv-warning-fields";
-      for (const [fieldName, value] of nonEmptyFields) {
-        const dt = document.createElement("dt");
-        dt.textContent = fieldName;
-        const dd = document.createElement("dd");
-        dd.textContent = value;
-        dl.appendChild(dt);
-        dl.appendChild(dd);
-      }
-      entry.appendChild(dl);
-    }
-
-    details.appendChild(entry);
+  for (const warning of parsed.warnings) {
+    details.appendChild(buildWarningEntry(key, warning.rowIndex, warning.explanation));
   }
 
   container.appendChild(details);
+}
+
+/** Builds one malformed-row entry: an explanation, the raw text of the
+ * row before and after for context, an editable copy of the row itself,
+ * and a button to re-parse the whole file with the edit applied. */
+function buildWarningEntry(
+  key: FileSlot["key"],
+  rowIndex: number,
+  explanation: string
+): HTMLElement {
+  const parsed = loadedFiles.get(key)!;
+  const { before, current, after } = rowContext(parsed, rowIndex);
+
+  const entry = document.createElement("div");
+  entry.className = "csv-warning-entry";
+
+  const explanationEl = document.createElement("p");
+  explanationEl.className = "csv-warning-explanation";
+  explanationEl.textContent = `Line ${rowIndex + 2} of the file: ${explanation}`;
+  entry.appendChild(explanationEl);
+
+  if (before !== undefined) {
+    entry.appendChild(buildContextLine("Row before", before));
+  }
+
+  const editorLabel = document.createElement("label");
+  editorLabel.className = "csv-warning-editor-label";
+  editorLabel.textContent = "Malformed row — edit the raw text below to fix it";
+  entry.appendChild(editorLabel);
+
+  const textarea = document.createElement("textarea");
+  textarea.className = "csv-warning-editor";
+  textarea.value = current;
+  textarea.rows = Math.max(2, current.split("\n").length);
+  entry.appendChild(textarea);
+
+  if (after !== undefined) {
+    entry.appendChild(buildContextLine("Row after", after));
+  }
+
+  const reparseButton = document.createElement("button");
+  reparseButton.className = "secondary";
+  reparseButton.textContent = "Re-parse with this correction";
+  reparseButton.addEventListener("click", () => {
+    const corrected = applyRowCorrection(parsed, rowIndex, textarea.value);
+    loadedFiles.set(key, corrected);
+    refreshFileDisplay(key);
+    updateRunButtonState();
+  });
+  entry.appendChild(reparseButton);
+
+  return entry;
+}
+
+function buildContextLine(label: string, text: string): HTMLElement {
+  const wrap = document.createElement("div");
+  wrap.className = "csv-warning-context";
+  const labelEl = document.createElement("span");
+  labelEl.className = "csv-warning-context-label";
+  labelEl.textContent = label;
+  const pre = document.createElement("pre");
+  pre.textContent = text;
+  wrap.appendChild(labelEl);
+  wrap.appendChild(pre);
+  return wrap;
 }
 
 for (const slot of SLOTS) {
@@ -183,25 +250,17 @@ for (const slot of SLOTS) {
 
     errorBanner.style.display = "none";
     setStatus(slot.key, `Reading ${file.name}...`);
-    renderCsvWarnings(slot.key, []);
+    loadedFiles.delete(slot.key);
+    renderCsvWarnings(slot.key);
 
     try {
       const text = await file.text();
-      const { rows, warnings } = parseCsv(text);
-      loadedRows.set(slot.key, rows);
-
-      if (warnings.length > 0) {
-        setStatus(
-          slot.key,
-          `${file.name} — ${rows.length} rows (${warnings.length} had formatting issues)`,
-          "warning"
-        );
-      } else {
-        setStatus(slot.key, `${file.name} — ${rows.length} rows`, "loaded");
-      }
-      renderCsvWarnings(slot.key, warnings);
+      const parsed = parseCsv(text);
+      loadedFiles.set(slot.key, parsed);
+      loadedFilenames.set(slot.key, file.name);
+      refreshFileDisplay(slot.key);
     } catch (err) {
-      loadedRows.delete(slot.key);
+      loadedFiles.delete(slot.key);
       setStatus(slot.key, `Failed to read ${file.name}`);
       showError(err instanceof Error ? err.message : String(err));
     }
@@ -343,9 +402,9 @@ runButton.addEventListener("click", () => {
   errorBanner.style.display = "none";
 
   try {
-    const dogfishRows = loadedRows.get("dogfish")!;
-    const camsRows = loadedRows.get("cams")!;
-    const redcapRows = loadedRows.get("redcap")!;
+    const dogfishRows = loadedFiles.get("dogfish")!.rows;
+    const camsRows = loadedFiles.get("cams")!.rows;
+    const redcapRows = loadedFiles.get("redcap")!.rows;
 
     lastResult = runAudit(dogfishRows, camsRows, redcapRows);
     const {
