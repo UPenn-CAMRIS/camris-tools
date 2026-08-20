@@ -1,3 +1,5 @@
+import Papa from "papaparse";
+
 export interface Column<T> {
   header: string;
   get: (row: T) => string | boolean;
@@ -8,19 +10,14 @@ export interface Column<T> {
 }
 
 function csvField(value: string | boolean): string {
-  const s = typeof value === "boolean" ? (value ? "TRUE" : "FALSE") : value;
-  if (/[",\n]/.test(s)) {
-    return `"${s.replace(/"/g, '""')}"`;
-  }
-  return s;
+  return typeof value === "boolean" ? (value ? "TRUE" : "FALSE") : value;
 }
 
 export function toCsv<T>(columns: Column<T>[], rows: T[]): string {
-  const lines = [columns.map((c) => csvField(c.header)).join(",")];
-  for (const row of rows) {
-    lines.push(columns.map((c) => csvField(c.get(row))).join(","));
-  }
-  return lines.join("\r\n");
+  return Papa.unparse({
+    fields: columns.map((c) => c.header),
+    data: rows.map((row) => columns.map((c) => csvField(c.get(row)))),
+  });
 }
 
 export function downloadCsv(filename: string, csv: string): void {
