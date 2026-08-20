@@ -12,7 +12,7 @@ const redcap = parseCsv(readFileSync(join(dir, "Redcap_Export.csv"), "utf-8"));
 console.log(
   `Loaded ${dogfish.rows.length} Dogfish rows (${dogfish.warnings.length} warnings), ` +
     `${cams.rows.length} CAMS rows (${cams.warnings.length} warnings), ` +
-    `${redcap.rows.length} RedCap rows (${redcap.warnings.length} warnings)`
+    `${redcap.rows.length} REDCap rows (${redcap.warnings.length} warnings)`
 );
 
 for (const { file, warnings } of [

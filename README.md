@@ -16,7 +16,7 @@ Upload three CSV exports for the same period:
 
 - **Dogfish Events** — the scanner billing/event log
 - **CAMS Data** — fund and industry-sponsorship data per protocol
-- **RedCap Export** — CAMRIS application/review data, including which fees a
+- **REDCap Export** — CAMRIS application/review data, including which fees a
   protocol's approved review letter authorizes
 
 If a file has malformed rows (e.g. an unescaped quote inside a field), parsing
@@ -24,7 +24,7 @@ still continues on a best-effort basis, and an expandable box appears under
 that file's upload row listing which rows were affected, why, and their
 (non-empty) parsed values — so you can decide whether to fix the source file.
 
-The tool matches events to their protocol's CAMS and RedCap records (by a
+The tool matches events to their protocol's CAMS and REDCap records (by a
 normalized protocol number) and flags:
 
 - Industry-sponsored protocols billed at the government rate, and vice versa
@@ -44,16 +44,16 @@ each results table in the app itself.
 2. **Violations by Event** — one row per billing event, for tracing a specific
    charge back to a specific scan.
 3. **Mismatches** — protocols that couldn't be fully checked because they
-   weren't found in CAMS, weren't found in an active ("Complete") RedCap
+   weren't found in CAMS, weren't found in an active ("Complete") REDCap
    review, or have a protocol number that doesn't match an expected format.
    Deduped to one row per protocol. (Animal protocols showing "no active
-   RedCap match" is expected — RedCap only tracks human IRB applications.)
+   REDCap match" is expected — REDCap only tracks human IRB applications.)
 4. **SC7T Scanner Events** — every raw Dogfish row on the SC7T scanner,
    including no-shows and cancellations, unfiltered by any audit rule.
 5. **Add-On Fees Without MRI** — events billed for a Stimulus/Response
    Equipment and/or Neuroreader fee with no MRI service code on the same
    event. These fees are meant to ride along with a scan, so this is a
-   data-quality flag independent of the CAMS/RedCap checks above.
+   data-quality flag independent of the CAMS/REDCap checks above.
 
 Every table can be exported to CSV from the button above it.
 
@@ -81,7 +81,7 @@ folder instead, e.g. `python3 -m http.server 8080 --directory dist`.
 src/
   main.ts             UI wiring: file uploads, run button, table rendering, CSV export
   audit.ts             the rule engine — protocol normalization, event grouping,
-                        CAMS/RedCap matching, the violation checks, SC7T event
+                        CAMS/REDCap matching, the violation checks, SC7T event
                         listing, and the add-on-without-MRI check
   parseCsv.ts           CSV parsing (papaparse), tolerant of malformed rows
   csvExport.ts          generic CSV export + download

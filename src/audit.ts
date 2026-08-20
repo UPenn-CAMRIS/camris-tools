@@ -96,13 +96,13 @@ function normalizeDogfishCamsProtocol(rawProtocolNumber: string): string {
   return match ? match[0] : rawProtocolNumber;
 }
 
-/** RedCap's irb_protocol_number field holds free text, not a clean value.
+/** REDCap's irb_protocol_number field holds free text, not a clean value.
  * This function extracts the real protocol number in three steps, in order:
  *
  * 1. If the value starts with a recognized protocol format, use that. This
  *    handles clean values and values with trailing notes (for example,
  *    "26-5894 (reliance agreement; penn not IRB of record)").
- * 2. Otherwise, look for a number in parentheses. RedCap uses this to give
+ * 2. Otherwise, look for a number in parentheses. REDCap uses this to give
  *    the real protocol number when the rest of the field holds something
  *    else, such as a CHOP protocol number (for example,
  *    "CHOP_14-011487 (821881)" — 821881 is the number we want, not 011487).
@@ -209,7 +209,7 @@ function hasMriService(flags: ServiceFlags): boolean {
 /** A Stimulus or Neuroreader fee should accompany a scan on the same
  * event. A fee billed with no MRI service code on that event is a
  * data-quality flag. This is true even if the event is also a CAMS or
- * RedCap mismatch or violation. */
+ * REDCap mismatch or violation. */
 function buildAddOnsWithoutMri(events: DogfishEvent[]): AddOnWithoutMriRow[] {
   const rows: AddOnWithoutMriRow[] = [];
 
@@ -241,7 +241,7 @@ function buildCamsLookup(camsRows: CsvRow[]): Map<string, CamsRecord> {
     if (rawProtocol === "") continue;
 
     const normalized = normalizeDogfishCamsProtocol(rawProtocol);
-    // The first matching record wins. The RedCap lookup below also
+    // The first matching record wins. The REDCap lookup below also
     // collapses duplicate records this way, matching the original
     // Julia audit script.
     if (!lookup.has(normalized)) {

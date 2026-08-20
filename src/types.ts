@@ -84,7 +84,7 @@ export interface ScannerEventRow {
  * both, but no main MRI service code. Events are grouped by Event ID,
  * and no-shows are excluded. These fees should ride along with a scan.
  * A fee with no scan is a data-quality flag, separate from the CAMS and
- * RedCap checks. */
+ * REDCap checks. */
 export interface AddOnWithoutMriRow {
   eventId: string;
   protocolNumber: string;

@@ -25,7 +25,7 @@ interface FileSlot {
 const SLOTS: FileSlot[] = [
   { key: "dogfish", label: "Dogfish Events CSV", accept: ".csv" },
   { key: "cams", label: "CAMS Data CSV", accept: ".csv" },
-  { key: "redcap", label: "RedCap Export CSV", accept: ".csv" },
+  { key: "redcap", label: "REDCap Export CSV", accept: ".csv" },
 ];
 
 const loadedRows = new Map<FileSlot["key"], CsvRow[]>();
@@ -96,7 +96,7 @@ app.innerHTML = `
         <button class="secondary" id="export-addons">Export CSV</button>
       </div>
       <div class="table-wrap" id="addons-table"></div>
-      <p class="table-note">Events billed for a Stimulus/Response Equipment and/or Neuroreader (Research Report Reader) fee with no MRI service code on the same event — these fees are meant to accompany a scan, so one alone is a data-quality flag independent of the CAMS/RedCap checks.</p>
+      <p class="table-note">Events billed for a Stimulus/Response Equipment and/or Neuroreader (Research Report Reader) fee with no MRI service code on the same event — these fees are meant to accompany a scan, so one alone is a data-quality flag independent of the CAMS/REDCap checks.</p>
     </div>
   </div>
 `;
@@ -247,7 +247,7 @@ const mismatchColumns: Column<DedupedMismatchRow>[] = [
   { header: "Protocol Number", get: (r) => r.protocolNumber },
   { header: "Project Title", get: (r) => r.projectTitle, wrap: true },
   { header: "No CAMS Match", get: (r) => r.noCamsMatch },
-  { header: "No Active RedCap Match", get: (r) => r.noActiveRedcapMatch },
+  { header: "No Active REDCap Match", get: (r) => r.noActiveRedcapMatch },
   { header: "Invalid Protocol Format", get: (r) => r.invalidProtocolFormat },
 ];
 
