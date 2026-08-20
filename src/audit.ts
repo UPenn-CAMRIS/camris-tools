@@ -11,7 +11,7 @@ import type {
   ViolationRow,
 } from "./types";
 
-const SERVICE_MAP: Record<string, keyof ServiceFlags> = {
+export const SERVICE_MAP: Record<string, keyof ServiceFlags> = {
   "Human MRI": "humanMRI",
   "Human MRI (Industry/CHOP)": "humanMRIIndustry",
   "Human MRI (Ex-vivo scanning)": "humanMRIExVivo",
@@ -21,7 +21,7 @@ const SERVICE_MAP: Record<string, keyof ServiceFlags> = {
   "Research Report Reader Fee": "neuroreader",
 };
 
-const NO_SHOW_SERVICE = "No Show/Cancellation Fee";
+export const NO_SHOW_SERVICE = "No Show/Cancellation Fee";
 export const TARGET_SCANNER = "SC7T";
 
 // Derived from SERVICE_MAP instead of a separate literal, so the two

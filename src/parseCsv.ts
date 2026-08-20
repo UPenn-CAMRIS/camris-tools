@@ -70,14 +70,29 @@ function headerLineEnd(text: string): number {
   return idx === -1 ? text.length : idx + 1;
 }
 
+/** Reads the column names from the header line directly, instead of
+ * relying on PapaParse's per-row `meta.fields` — that field is only
+ * set while parsing a data row, so a file with a header but no data
+ * rows would otherwise report no columns at all. */
+function readHeaderFields(rawText: string, headerEnd: number): string[] {
+  const headerLine = rawText.slice(0, headerEnd);
+  if (headerLine.trim() === "") return [];
+  const result = Papa.parse<string[]>(headerLine, {
+    header: false,
+    skipEmptyLines: true,
+  });
+  return result.data[0] ?? [];
+}
+
 export function parseCsv(text: string): ParsedCsv {
   const rawText = text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
 
   const rows: CsvRow[] = [];
   const warnings: CsvWarning[] = [];
   const rowSpans: RowSpan[] = [];
-  let fields: string[] = [];
-  let cursor = headerLineEnd(rawText);
+  const headerEnd = headerLineEnd(rawText);
+  const fields = readHeaderFields(rawText, headerEnd);
+  let cursor = headerEnd;
 
   Papa.parse<CsvRow>(rawText, {
     header: true,
@@ -87,7 +102,6 @@ export function parseCsv(text: string): ParsedCsv {
       rows.push(results.data);
       rowSpans.push({ start: cursor, end: results.meta.cursor });
       cursor = results.meta.cursor;
-      if (results.meta.fields) fields = results.meta.fields;
 
       if (results.errors.length > 0) {
         const error = results.errors[0];

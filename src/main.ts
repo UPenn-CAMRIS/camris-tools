@@ -8,6 +8,12 @@ import {
   type ParsedCsv,
 } from "./parseCsv";
 import { runAudit, TARGET_SCANNER } from "./audit";
+import {
+  runSanityChecks,
+  hasBlockingIssues,
+  FILE_SCHEMAS,
+  type SanityCheckResult,
+} from "./sanityChecks";
 import { toCsv, downloadCsv, type Column } from "./csvExport";
 import type {
   AddOnWithoutMriRow,
@@ -51,6 +57,7 @@ app.innerHTML = `
           <input type="file" id="file-${slot.key}" accept="${slot.accept}" />
           <span class="file-status" id="status-${slot.key}">No file selected</span>
         </div>
+        <div id="sanity-${slot.key}"></div>
         <div id="warnings-${slot.key}"></div>
       </div>`
     ).join("")}
@@ -115,7 +122,14 @@ const resultsEl = document.getElementById("results")!;
 const loadedFilenames = new Map<FileSlot["key"], string>();
 
 function updateRunButtonState(): void {
-  runButton.disabled = SLOTS.some((slot) => !loadedFiles.has(slot.key));
+  const missingAFile = SLOTS.some((slot) => !loadedFiles.has(slot.key));
+  const hasBlockingSanityIssue = SLOTS.some((slot) => {
+    const parsed = loadedFiles.get(slot.key);
+    return parsed
+      ? hasBlockingIssues(runSanityChecks(FILE_SCHEMAS[slot.key], parsed))
+      : false;
+  });
+  runButton.disabled = missingAFile || hasBlockingSanityIssue;
 }
 
 function setStatus(
@@ -150,7 +164,93 @@ function refreshFileDisplay(key: FileSlot["key"]): void {
   } else {
     setStatus(key, `${filename} — ${parsed.rows.length} rows`, "loaded");
   }
+  renderSanityChecks(key);
   renderCsvWarnings(key);
+}
+
+/** Builds and shows the sanity-check results for `key`: missing required
+ * columns block the audit and are shown first, then column-name and
+ * coded-value warnings that do not block the audit. */
+function renderSanityChecks(key: FileSlot["key"]): void {
+  const container = document.getElementById(`sanity-${key}`)!;
+  container.innerHTML = "";
+
+  const parsed = loadedFiles.get(key);
+  if (!parsed) return;
+
+  const result = runSanityChecks(FILE_SCHEMAS[key], parsed);
+
+  const blockingCount = result.missingColumns.length + result.renamedColumns.length;
+  if (blockingCount > 0) {
+    container.appendChild(buildBlockingColumnsBox(result));
+  }
+
+  const warningCount = result.unrecognizedValues.length + (result.isEmpty ? 1 : 0);
+  if (warningCount > 0) {
+    container.appendChild(buildSanityWarningsBox(result, warningCount));
+  }
+}
+
+function buildBlockingColumnsBox(result: SanityCheckResult): HTMLElement {
+  const box = document.createElement("div");
+  box.className = "detail-box sanity-blocking";
+
+  const count = result.missingColumns.length + result.renamedColumns.length;
+  const title = document.createElement("p");
+  title.className = "sanity-blocking-title";
+  title.textContent = `Run Audit is off. This file has a problem with ${count} required column${
+    count === 1 ? "" : "s"
+  }.`;
+  box.appendChild(title);
+
+  const list = document.createElement("ul");
+  for (const issue of result.missingColumns) {
+    const li = document.createElement("li");
+    li.textContent = `Missing column: "${issue.expected}".`;
+    list.appendChild(li);
+  }
+  for (const issue of result.renamedColumns) {
+    const li = document.createElement("li");
+    li.textContent = `Found "${issue.actualHeader}" instead of "${issue.expected}". Check for extra spaces or different capital letters.`;
+    list.appendChild(li);
+  }
+  box.appendChild(list);
+
+  return box;
+}
+
+function buildSanityWarningsBox(
+  result: SanityCheckResult,
+  warningCount: number
+): HTMLElement {
+  const details = document.createElement("details");
+  details.className = "detail-box sanity-warnings";
+  details.open = true;
+
+  const summary = document.createElement("summary");
+  summary.textContent = `${warningCount} sanity check warning${
+    warningCount === 1 ? "" : "s"
+  }`;
+  details.appendChild(summary);
+
+  for (const issue of result.unrecognizedValues) {
+    const p = document.createElement("p");
+    p.className = "sanity-warning-line";
+    const shownValue = issue.value === "" ? "(blank)" : `"${issue.value}"`;
+    p.textContent = `The column "${issue.column}" has a value the audit rules do not know: ${shownValue}. This value appears in ${
+      issue.count
+    } row${issue.count === 1 ? "" : "s"}.`;
+    details.appendChild(p);
+  }
+
+  if (result.isEmpty) {
+    const p = document.createElement("p");
+    p.className = "sanity-warning-line";
+    p.textContent = "This file has a header row, but it has no data rows.";
+    details.appendChild(p);
+  }
+
+  return details;
 }
 
 function renderCsvWarnings(key: FileSlot["key"]): void {
@@ -293,6 +393,7 @@ for (const slot of SLOTS) {
     errorBanner.style.display = "none";
     setStatus(slot.key, `Reading ${file.name}...`);
     loadedFiles.delete(slot.key);
+    renderSanityChecks(slot.key);
     renderCsvWarnings(slot.key);
 
     try {
@@ -303,6 +404,7 @@ for (const slot of SLOTS) {
       refreshFileDisplay(slot.key);
     } catch (err) {
       loadedFiles.delete(slot.key);
+      renderSanityChecks(slot.key);
       setStatus(slot.key, `Failed to read ${file.name}`);
       showError(err instanceof Error ? err.message : String(err));
     }

@@ -291,6 +291,35 @@ td.bool-true {
   margin-bottom: 0.5rem;
 }
 
+.sanity-blocking {
+  background: #fdecea;
+  border-color: var(--danger);
+}
+
+.sanity-blocking-title {
+  margin: 0 0 0.3rem;
+  font-weight: 600;
+  color: var(--danger);
+}
+
+.sanity-blocking ul {
+  margin: 0;
+  padding-left: 1.25rem;
+  color: var(--danger);
+}
+
+.sanity-warnings summary {
+  color: #a06a00;
+}
+
+.sanity-warning-line {
+  margin: 0.35rem 0;
+}
+
+.sanity-warning-line:first-of-type {
+  margin-top: 0;
+}
+
 .rule-explainer dl {
   margin: 0;
 }
