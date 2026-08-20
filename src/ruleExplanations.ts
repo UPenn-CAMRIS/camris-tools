@@ -55,17 +55,17 @@ export const MISMATCH_RULE_EXPLANATIONS: RuleExplanation[] = [
   {
     label: "No CAMS Match",
     description:
-      "The event's protocol number could not be found in the CAMS data, so the Industry Billed As Government / Government Billed As Industry checks could not be evaluated for it.",
+      "The event's protocol number could not be found in the CAMS data. The Industry Billed As Government and Government Billed As Industry checks need CAMS data, so only those two checks were skipped for this event. Every other check — Stimulus and Neuroreader billing, Animal/Human Billed As, Neuroreader Billed At Stellar Chance — still ran normally, and any violations they found still appear on the Violations tables above. If this row shows no violations, that means those other checks ran and found none, not that nothing was checked.",
   },
   {
     label: "No Active RedCap Match",
     description:
-      'No RedCap record with a completed review letter ("camris_review_letter_complete" = Complete) was found for this protocol, so the Stimulus and Neuroreader billing checks could not be evaluated. This is expected for animal protocols, which are not tracked in RedCap — it does not necessarily indicate a problem.',
+      'No RedCap record with a completed review letter ("camris_review_letter_complete" = Complete) was found for this protocol. The four Stimulus and Neuroreader billing checks need an active RedCap record, so only those were skipped for this event. Every other check — Industry/Government Billed As, Animal/Human Billed As, Neuroreader Billed At Stellar Chance — still ran normally, and any violations they found still appear on the Violations tables above. This is expected for animal protocols, which RedCap does not track, so it does not by itself indicate a problem.',
   },
   {
     label: "Invalid Protocol Format",
     description:
-      'The protocol number does not match any expected format — a plain 6-digit number, "AR" followed by 6 digits, or "xx-xxxx" (2 digits, hyphen, 4 digits) — so it may be mistyped or entered inconsistently in Dogfish.',
+      'The protocol number does not match any expected format — a plain 6-digit number, "AR" followed by 6 digits, or "xx-xxxx" (2 digits, hyphen, 4 digits) — so it may be mistyped or entered inconsistently in Dogfish. This flag does not by itself stop any check from running: CAMS and RedCap matching use the protocol number as written, so a match, and the checks that depend on it, can still succeed even with an unexpected format. Treat this flag as a data-quality note on the protocol number itself, separate from whether matching succeeded.',
   },
 ];
 
