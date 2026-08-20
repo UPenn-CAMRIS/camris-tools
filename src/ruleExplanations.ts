@@ -69,6 +69,19 @@ export const MISMATCH_RULE_EXPLANATIONS: RuleExplanation[] = [
   },
 ];
 
+export const PRODEV_RULE_EXPLANATIONS: RuleExplanation[] = [
+  {
+    label: "Prodev Service Without Suffix",
+    description:
+      'The event billed Human MRI (Prodev Tier 1) or (Prodev Tier 2), but its protocol number does not end with "-P", "_P", or "Prodev" — the naming that usually marks a Prodev-tier protocol. This may be a legitimate, differently-named exception rather than a billing error; it is flagged for review either way.',
+  },
+  {
+    label: "Suffix Without Prodev Service",
+    description:
+      'The protocol number ends with "-P", "_P", or "Prodev", but the event was not billed at either Prodev tier — a Prodev-tier scan may have been billed at the wrong rate.',
+  },
+];
+
 export function renderRuleExplanations(items: RuleExplanation[]): string {
   return `
     <details class="detail-box rule-explainer">

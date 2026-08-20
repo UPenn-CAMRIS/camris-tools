@@ -5,7 +5,10 @@ import type {
   ComputedFlags,
   DedupedMismatchRow,
   DedupedViolationRow,
+  HumanMriExternalEventRow,
   MismatchRow,
+  ProdevConsistencyRow,
+  RedcapNameCollision,
   ScannerEventRow,
   ServiceFlags,
   ViolationRow,
@@ -15,6 +18,10 @@ export const SERVICE_MAP: Record<string, keyof ServiceFlags> = {
   "Human MRI": "humanMRI",
   "Human MRI (Industry/CHOP)": "humanMRIIndustry",
   "Human MRI (Ex-vivo scanning)": "humanMRIExVivo",
+  "Human MRI (external)": "humanMRIExternal",
+  "MRI after hr no tech": "humanMRIAfterHours",
+  "Human MRI (Prodev Tier 1)": "humanMRIProdevTier1",
+  "Human MRI (Prodev Tier 2)": "humanMRIProdevTier2",
   "Animal MRI": "animalMRI",
   "Animal MRI (Industry/CHOP)": "animalMRIIndustry",
   "Stimulus/Response Equipment Usage Fee": "stimulus",
@@ -29,6 +36,9 @@ export const TARGET_SCANNER = "SC7T";
 const NEUROREADER_SERVICE = Object.keys(SERVICE_MAP).find(
   (service) => SERVICE_MAP[service] === "neuroreader"
 )!;
+const HUMAN_MRI_EXTERNAL_SERVICE = Object.keys(SERVICE_MAP).find(
+  (service) => SERVICE_MAP[service] === "humanMRIExternal"
+)!;
 const STELLAR_CHANCE_SCANNERS = new Set(["SC3T", "SC7T"]);
 
 // Dogfish and CAMS protocol numbers use one of three formats:
@@ -39,11 +49,11 @@ const STELLAR_CHANCE_SCANNERS = new Set(["SC3T", "SC7T"]);
 const SIX_DIGIT_PREFIX = /^\d{6}/;
 const ANIMAL_PROTOCOL = /^AR\d{6}/;
 const YEAR_SEQUENCE_PROTOCOL = /^\d{2}-\d{4}/;
-const PROTOCOL_FORMAT_PREFIXES = [
-  SIX_DIGIT_PREFIX,
-  ANIMAL_PROTOCOL,
-  YEAR_SEQUENCE_PROTOCOL,
-];
+
+// A protocol billed at a Prodev tier is expected to end with "-P", "_P",
+// or "Prodev" (case-insensitive) on its raw, un-normalized number — the
+// "-P" would otherwise be stripped by normalizeDogfishCamsProtocol.
+const PRODEV_PROTOCOL_SUFFIX = /(?:[-_]p|prodev)$/i;
 
 /** Reads a field from a raw CSV row. Returns "" if the field is missing,
  * and trims whitespace either way. */
@@ -56,6 +66,10 @@ function emptyFlags(): ServiceFlags {
     humanMRI: false,
     humanMRIIndustry: false,
     humanMRIExVivo: false,
+    humanMRIExternal: false,
+    humanMRIAfterHours: false,
+    humanMRIProdevTier1: false,
+    humanMRIProdevTier2: false,
     animalMRI: false,
     animalMRIIndustry: false,
     stimulus: false,
@@ -68,6 +82,10 @@ function orFlags(a: ServiceFlags, b: ServiceFlags): ServiceFlags {
     humanMRI: a.humanMRI || b.humanMRI,
     humanMRIIndustry: a.humanMRIIndustry || b.humanMRIIndustry,
     humanMRIExVivo: a.humanMRIExVivo || b.humanMRIExVivo,
+    humanMRIExternal: a.humanMRIExternal || b.humanMRIExternal,
+    humanMRIAfterHours: a.humanMRIAfterHours || b.humanMRIAfterHours,
+    humanMRIProdevTier1: a.humanMRIProdevTier1 || b.humanMRIProdevTier1,
+    humanMRIProdevTier2: a.humanMRIProdevTier2 || b.humanMRIProdevTier2,
     animalMRI: a.animalMRI || b.animalMRI,
     animalMRIIndustry: a.animalMRIIndustry || b.animalMRIIndustry,
     stimulus: a.stimulus || b.stimulus,
@@ -96,32 +114,43 @@ function normalizeDogfishCamsProtocol(rawProtocolNumber: string): string {
   return match ? match[0] : rawProtocolNumber;
 }
 
-/** REDCap's irb_protocol_number field holds free text, not a clean value.
- * This function extracts the real protocol number in three steps, in order:
+/** REDCap's irb_protocol_number field holds free text, not a clean value,
+ * and can name a protocol more than one way in the same field — for
+ * example "25-2374 (45084153)" names the same protocol by an internal
+ * tracking number and by its real, 6-digit Penn protocol number. This
+ * function returns every name found, instead of guessing which one is
+ * "the" real number:
  *
- * 1. If the value starts with a recognized protocol format, use that. This
- *    handles clean values and values with trailing notes (for example,
- *    "26-5894 (reliance agreement; penn not IRB of record)").
- * 2. Otherwise, look for a number in parentheses. REDCap uses this to give
- *    the real protocol number when the rest of the field holds something
- *    else, such as a CHOP protocol number (for example,
- *    "CHOP_14-011487 (821881)" — 821881 is the number we want, not 011487).
- * 3. Otherwise, use the first standalone 6-digit run in the value (for
- *    example, "832748_Prodev" after a PI's name).
+ * - An animal-format or year-sequence-format name at the very start of
+ *   the text (for example, "26-5894" in
+ *   "26-5894 (reliance agreement; penn not IRB of record)").
+ * - Every run of 6 or more digits anywhere in the text, inside
+ *   parentheses or bare, truncated to its first 6 digits — matching the
+ *   convention already used for Dogfish and CAMS's own Protocol Number
+ *   column. This covers both a parenthetical override (for example,
+ *   "821881" from "CHOP_14-011487 (821881)") and a standalone run after
+ *   other text (for example, "832748" from "832748_Prodev").
+ *
+ * A value with none of these, such as a placeholder like "TBD" or
+ * "Pending", gets no name at all. Such a protocol has no real number
+ * yet, so it cannot be matched to Dogfish or CAMS by number — treating
+ * the placeholder text itself as a name would wrongly link every
+ * "TBD" protocol together.
  */
-function extractRedcapProtocol(rawIrbNumber: string): string {
-  for (const pattern of PROTOCOL_FORMAT_PREFIXES) {
-    const match = rawIrbNumber.match(pattern);
-    if (match) return match[0];
+function extractRedcapProtocolNames(rawIrbNumber: string): string[] {
+  const names = new Set<string>();
+
+  const animalMatch = rawIrbNumber.match(ANIMAL_PROTOCOL);
+  if (animalMatch) names.add(animalMatch[0]);
+
+  const yearMatch = rawIrbNumber.match(YEAR_SEQUENCE_PROTOCOL);
+  if (yearMatch) names.add(yearMatch[0]);
+
+  for (const digitRun of rawIrbNumber.match(/\d{6,}/g) ?? []) {
+    names.add(digitRun.slice(0, 6));
   }
 
-  const parenMatch = rawIrbNumber.match(/\((\d{6})\)/);
-  if (parenMatch) return parenMatch[1];
-
-  const embeddedMatch = rawIrbNumber.match(/\d{6}/);
-  if (embeddedMatch) return embeddedMatch[0];
-
-  return rawIrbNumber;
+  return [...names];
 }
 
 interface DogfishEvent {
@@ -186,7 +215,37 @@ function buildScannerEvents(dogfishRows: CsvRow[]): ScannerEventRow[] {
     rows.push({
       eventId: field(row, "Event ID"),
       protocolNumber: field(row, "Protocol Number"),
+      projectTitle: field(row, "Project Title"),
       service: field(row, "Service"),
+      scanTime: field(row, "Scan Time"),
+      quantity: field(row, "Quantity"),
+      mandatoryService: field(row, "Mandatory Service"),
+      schedulingUser: field(row, "Scheduling User"),
+      checkInUser: field(row, "Check-In User"),
+    });
+  }
+
+  return rows;
+}
+
+/** Every raw Dogfish row billed as Human MRI (External), on any scanner.
+ * Like buildScannerEvents, this is not grouped or deduped, and includes
+ * no-shows. */
+function buildHumanMriExternalEvents(
+  dogfishRows: CsvRow[]
+): HumanMriExternalEventRow[] {
+  const rows: HumanMriExternalEventRow[] = [];
+
+  for (const row of dogfishRows) {
+    const service = field(row, "Service");
+    if (service !== HUMAN_MRI_EXTERNAL_SERVICE) continue;
+
+    rows.push({
+      eventId: field(row, "Event ID"),
+      protocolNumber: field(row, "Protocol Number"),
+      projectTitle: field(row, "Project Title"),
+      scanner: field(row, "Scanner"),
+      service,
       scanTime: field(row, "Scan Time"),
       quantity: field(row, "Quantity"),
       mandatoryService: field(row, "Mandatory Service"),
@@ -203,6 +262,10 @@ function hasMriService(flags: ServiceFlags): boolean {
     flags.humanMRI ||
     flags.humanMRIIndustry ||
     flags.humanMRIExVivo ||
+    flags.humanMRIExternal ||
+    flags.humanMRIAfterHours ||
+    flags.humanMRIProdevTier1 ||
+    flags.humanMRIProdevTier2 ||
     flags.animalMRI ||
     flags.animalMRIIndustry
   );
@@ -224,6 +287,44 @@ function buildAddOnsWithoutMri(events: DogfishEvent[]): AddOnWithoutMriRow[] {
         protocolNumber: event.protocolNumberRaw,
         stimulus: flags.stimulus,
         neuroreader: flags.neuroreader,
+      });
+    }
+  }
+
+  return rows;
+}
+
+/** Checks each event's Prodev-tier billing against its protocol number's
+ * naming. The "-P"/"_P"/"Prodev" ending does not say which tier, so both
+ * tiers count as one "Prodev" concept for this check. */
+function buildProdevConsistencyIssues(
+  events: DogfishEvent[]
+): ProdevConsistencyRow[] {
+  const rows: ProdevConsistencyRow[] = [];
+
+  for (const event of events) {
+    const { flags, protocolNumberRaw } = event;
+    const billedTiers = [
+      flags.humanMRIProdevTier1 ? "Human MRI (Prodev Tier 1)" : undefined,
+      flags.humanMRIProdevTier2 ? "Human MRI (Prodev Tier 2)" : undefined,
+    ].filter((tier): tier is string => tier !== undefined);
+
+    const hasProdevService = billedTiers.length > 0;
+    const hasProdevSuffix = PRODEV_PROTOCOL_SUFFIX.test(protocolNumberRaw);
+
+    const prodevServiceWithoutSuffix = hasProdevService && !hasProdevSuffix;
+    const suffixWithoutProdevService = hasProdevSuffix && !hasProdevService;
+
+    if (prodevServiceWithoutSuffix || suffixWithoutProdevService) {
+      rows.push({
+        eventId: event.eventId,
+        protocolNumber: protocolNumberRaw,
+        projectTitle: event.projectTitle,
+        scanTime: event.scanTime,
+        scanner: event.scanner,
+        prodevServiceBilled: billedTiers.join(", "),
+        prodevServiceWithoutSuffix,
+        suffixWithoutProdevService,
       });
     }
   }
@@ -264,8 +365,30 @@ interface RedcapRecord {
 const REDCAP_REVIEW_LETTER_COMPLETE = "2";
 const REDCAP_CHECKED = "1";
 
-function buildRedcapLookup(redcapRows: CsvRow[]): Map<string, RedcapRecord> {
+export interface RedcapLookupResult {
+  lookup: Map<string, RedcapRecord>;
+  collisions: RedcapNameCollision[];
+}
+
+/** Builds the REDCap protocol lookup, keyed by every name each "complete"
+ * row's irb_protocol_number produces (see extractRedcapProtocolNames).
+ * One protocol can span several REDCap rows over time — a resubmission,
+ * or a later row adding an annotation — and those rows are expected to
+ * produce the exact same set of names; the later row's data wins, same
+ * as before this function returned more than one name per row.
+ *
+ * A name is only trusted if every row that produces it agrees on the
+ * *entire* set of names for that row. If two rows produce the same name
+ * but disagree on the rest of their names, this function cannot tell a
+ * genuine resubmission from two different protocols whose REDCap text
+ * happens to overlap — for example, a coordinator's free-text note
+ * mentioning a different, unrelated protocol's number. That name is
+ * reported as a collision instead of being trusted for either row. */
+export function buildRedcapLookup(redcapRows: CsvRow[]): RedcapLookupResult {
   const lookup = new Map<string, RedcapRecord>();
+  const ownerByName = new Map<string, { rawIrb: string; names: Set<string> }>();
+  const collisions: RedcapNameCollision[] = [];
+  const reportedCollisions = new Set<string>();
 
   for (const row of redcapRows) {
     const complete = field(row, "camris_review_letter_complete");
@@ -274,16 +397,39 @@ function buildRedcapLookup(redcapRows: CsvRow[]): Map<string, RedcapRecord> {
     const rawIrb = field(row, "irb_protocol_number");
     if (rawIrb === "") continue;
 
-    const protocolNumber = extractRedcapProtocol(rawIrb);
+    const names = extractRedcapProtocolNames(rawIrb);
+    if (names.length === 0) continue;
 
-    // The last matching "complete" row for a protocol wins.
-    lookup.set(protocolNumber, {
+    const nameSet = new Set(names);
+    const record: RedcapRecord = {
       neuroreader: field(row, "fees_reviewletter___2") === REDCAP_CHECKED,
       stimulus: field(row, "fees_reviewletter___6") === REDCAP_CHECKED,
-    });
+    };
+
+    for (const name of names) {
+      const owner = ownerByName.get(name);
+      const sameRow = owner?.rawIrb === rawIrb;
+      const sameNameSet =
+        owner !== undefined &&
+        owner.names.size === nameSet.size &&
+        [...owner.names].every((n) => nameSet.has(n));
+
+      if (owner !== undefined && !sameRow && !sameNameSet) {
+        const collisionKey = [owner.rawIrb, rawIrb].sort().join(" ") + " " + name;
+        if (!reportedCollisions.has(collisionKey)) {
+          reportedCollisions.add(collisionKey);
+          collisions.push({ name, protocolFields: [owner.rawIrb, rawIrb] });
+        }
+        continue;
+      }
+
+      ownerByName.set(name, { rawIrb, names: nameSet });
+      // The last matching "complete" row for a protocol wins.
+      lookup.set(name, record);
+    }
   }
 
-  return lookup;
+  return { lookup, collisions };
 }
 
 function computeFlags(
@@ -303,7 +449,13 @@ function computeFlags(
       ? billedIndustry && cams.industrySponsored !== "Yes"
       : undefined,
     animalBilledAsHuman:
-      (flags.humanMRI || flags.humanMRIIndustry) && animalFormat,
+      (flags.humanMRI ||
+        flags.humanMRIIndustry ||
+        flags.humanMRIExternal ||
+        flags.humanMRIAfterHours ||
+        flags.humanMRIProdevTier1 ||
+        flags.humanMRIProdevTier2) &&
+      animalFormat,
     humanBilledAsAnimal:
       (flags.animalMRI || flags.animalMRIIndustry) && !animalFormat,
     stimulusBillingMissed: redcap
@@ -378,7 +530,7 @@ export function runAudit(
 ): AuditResult {
   const events = buildDogfishEvents(dogfishRows);
   const camsLookup = buildCamsLookup(camsRows);
-  const redcapLookup = buildRedcapLookup(redcapRows);
+  const { lookup: redcapLookup } = buildRedcapLookup(redcapRows);
 
   const violations: ViolationRow[] = [];
   const mismatches: MismatchRow[] = [];
@@ -432,6 +584,8 @@ export function runAudit(
     mismatches,
     dedupedMismatches: dedupeMismatches(mismatches),
     scannerEvents: buildScannerEvents(dogfishRows),
+    humanMriExternalEvents: buildHumanMriExternalEvents(dogfishRows),
+    prodevConsistencyIssues: buildProdevConsistencyIssues(events),
     addOnsWithoutMri: buildAddOnsWithoutMri(events),
   };
 }

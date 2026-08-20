@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseCsv } from "../src/parseCsv";
-import { runAudit } from "../src/audit";
+import { runAudit, buildRedcapLookup } from "../src/audit";
 
 const dir = join(import.meta.dirname, "..", "test_set_1");
 
@@ -25,8 +25,19 @@ for (const { file, warnings } of [
   }
 }
 
-const { violations, dedupedViolations, dedupedMismatches, scannerEvents, addOnsWithoutMri } =
-  runAudit(dogfish.rows, cams.rows, redcap.rows);
+const {
+  violations,
+  dedupedViolations,
+  dedupedMismatches,
+  scannerEvents,
+  humanMriExternalEvents,
+  prodevConsistencyIssues,
+  addOnsWithoutMri,
+} = runAudit(dogfish.rows, cams.rows, redcap.rows);
+
+const { collisions: redcapCollisions } = buildRedcapLookup(redcap.rows);
+console.log(`\n${redcapCollisions.length} REDCap protocol-name collisions`);
+console.table(redcapCollisions);
 
 console.log(`\n${violations.length} violation rows (per event)`);
 console.table(violations.slice(0, 20));
@@ -57,6 +68,12 @@ console.log("Mismatch counts by type:", mismatchCounts);
 
 console.log(`\n${scannerEvents.length} SC7T scanner events (incl. no-shows)`);
 console.table(scannerEvents.slice(0, 20));
+
+console.log(`\n${humanMriExternalEvents.length} Human MRI (External) events`);
+console.table(humanMriExternalEvents);
+
+console.log(`\n${prodevConsistencyIssues.length} Prodev naming consistency issues`);
+console.table(prodevConsistencyIssues);
 
 console.log(`\n${addOnsWithoutMri.length} add-on fees billed without an MRI service`);
 console.table(addOnsWithoutMri);

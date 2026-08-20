@@ -2,6 +2,10 @@ export interface ServiceFlags {
   humanMRI: boolean;
   humanMRIIndustry: boolean;
   humanMRIExVivo: boolean;
+  humanMRIExternal: boolean;
+  humanMRIAfterHours: boolean;
+  humanMRIProdevTier1: boolean;
+  humanMRIProdevTier2: boolean;
   animalMRI: boolean;
   animalMRIIndustry: boolean;
   stimulus: boolean;
@@ -77,6 +81,7 @@ export type DedupedMismatchRow = Omit<MismatchRow, "eventId">;
 export interface ScannerEventRow {
   eventId: string;
   protocolNumber: string;
+  projectTitle: string;
   service: string;
   scanTime: string;
   quantity: string;
@@ -97,11 +102,58 @@ export interface AddOnWithoutMriRow {
   neuroreader: boolean;
 }
 
+/** One row per raw Dogfish CSV row billed as Human MRI (External). Like
+ * ScannerEventRow, this is not grouped or deduped, and includes no-shows.
+ * Unlike ScannerEventRow, it is not limited to one scanner, so it carries
+ * its own Scanner column. */
+export interface HumanMriExternalEventRow {
+  eventId: string;
+  protocolNumber: string;
+  projectTitle: string;
+  scanner: string;
+  service: string;
+  scanTime: string;
+  quantity: string;
+  mandatoryService: string;
+  schedulingUser: string;
+  checkInUser: string;
+}
+
+/** A protocol identifier found on two different REDCap rows whose full
+ * set of identifiers does not otherwise match — REDCap's free-text
+ * protocol field can name more than one protocol, and identifiers are
+ * assumed unique to one protocol, so this is a data problem, not a
+ * normal multi-row resubmission. */
+export interface RedcapNameCollision {
+  name: string;
+  protocolFields: [string, string];
+}
+
+/** A Dogfish event whose Prodev-tier billing and protocol-number naming
+ * disagree — either it billed a Prodev tier (1 or 2) without a matching
+ * "-P"/"_P"/"Prodev" ending on its protocol number, or its protocol
+ * number has that ending without either tier billed. The suffix does
+ * not distinguish Tier 1 from Tier 2, so both checks treat the two
+ * tiers as one "Prodev" concept. No-shows are excluded, like the rest
+ * of the audit. */
+export interface ProdevConsistencyRow {
+  eventId: string;
+  protocolNumber: string;
+  projectTitle: string;
+  scanTime: string;
+  scanner: string;
+  prodevServiceBilled: string;
+  prodevServiceWithoutSuffix: boolean;
+  suffixWithoutProdevService: boolean;
+}
+
 export interface AuditResult {
   violations: ViolationRow[];
   dedupedViolations: DedupedViolationRow[];
   mismatches: MismatchRow[];
   dedupedMismatches: DedupedMismatchRow[];
   scannerEvents: ScannerEventRow[];
+  humanMriExternalEvents: HumanMriExternalEventRow[];
+  prodevConsistencyIssues: ProdevConsistencyRow[];
   addOnsWithoutMri: AddOnWithoutMriRow[];
 }

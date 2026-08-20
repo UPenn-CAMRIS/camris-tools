@@ -1,5 +1,5 @@
 import { parseCsv, type ParsedCsv } from "../parseCsv";
-import { runAudit, TARGET_SCANNER } from "../audit";
+import { runAudit, buildRedcapLookup, TARGET_SCANNER } from "../audit";
 import {
   runSanityChecks,
   hasBlockingIssues,
@@ -11,11 +11,15 @@ import type {
   AuditResult,
   DedupedMismatchRow,
   DedupedViolationRow,
+  HumanMriExternalEventRow,
+  ProdevConsistencyRow,
+  RedcapNameCollision,
   ScannerEventRow,
   ViolationRow,
 } from "../types";
 import {
   MISMATCH_RULE_EXPLANATIONS,
+  PRODEV_RULE_EXPLANATIONS,
   VIOLATION_RULE_EXPLANATIONS,
   renderRuleExplanations,
 } from "../ruleExplanations";
@@ -59,6 +63,7 @@ export function renderAuditPage(app: HTMLElement): void {
           </div>
           <div id="sanity-${slot.key}"></div>
           <div id="warnings-${slot.key}"></div>
+          ${slot.key === "redcap" ? '<div id="redcap-collisions"></div>' : ""}
         </div>`
       ).join("")}
     </div>
@@ -97,11 +102,29 @@ export function renderAuditPage(app: HTMLElement): void {
 
       <div class="results-section">
         <div class="results-section-header">
+          <h2>Prodev Naming Consistency <span class="count" id="prodev-consistency-count"></span></h2>
+          <button class="secondary" id="export-prodev-consistency">Export CSV</button>
+        </div>
+        <div class="table-wrap" id="prodev-consistency-table"></div>
+        ${renderRuleExplanations(PRODEV_RULE_EXPLANATIONS)}
+      </div>
+
+      <div class="results-section">
+        <div class="results-section-header">
           <h2>${TARGET_SCANNER} Scanner Events <span class="count" id="scanner-event-count"></span></h2>
           <button class="secondary" id="export-scanner-events">Export CSV</button>
         </div>
         <div class="table-wrap" id="scanner-events-table"></div>
         <p class="table-note">Every Dogfish row on the ${TARGET_SCANNER} scanner, including no-shows and late cancellations — not filtered by any audit rule.</p>
+      </div>
+
+      <div class="results-section">
+        <div class="results-section-header">
+          <h2>Human MRI (External) Events <span class="count" id="human-mri-external-count"></span></h2>
+          <button class="secondary" id="export-human-mri-external">Export CSV</button>
+        </div>
+        <div class="table-wrap" id="human-mri-external-table"></div>
+        <p class="table-note">Every Dogfish row billed as Human MRI (External), on any scanner — not filtered by any audit rule.</p>
       </div>
 
       <div class="results-section">
@@ -119,6 +142,8 @@ export function renderAuditPage(app: HTMLElement): void {
   const errorBanner = document.getElementById("error-banner")!;
   const resultsEl = document.getElementById("results")!;
 
+  let redcapCollisions: RedcapNameCollision[] = [];
+
   function updateRunButtonState(): void {
     const missingAFile = SLOTS.some((slot) => !loadedFiles.has(slot.key));
     const hasBlockingSanityIssue = SLOTS.some((slot) => {
@@ -127,7 +152,40 @@ export function renderAuditPage(app: HTMLElement): void {
         ? hasBlockingIssues(runSanityChecks(FILE_SCHEMAS[slot.key], parsed))
         : false;
     });
-    runButton.disabled = missingAFile || hasBlockingSanityIssue;
+    runButton.disabled =
+      missingAFile || hasBlockingSanityIssue || redcapCollisions.length > 0;
+  }
+
+  /** REDCap's protocol field can name a protocol more than one way (see
+   * buildRedcapLookup). A name shared between two rows that otherwise
+   * disagree is a data problem, not a normal resubmission — this blocks
+   * the audit the same as a missing required column. */
+  function renderRedcapCollisions(collisions: RedcapNameCollision[]): void {
+    const container = document.getElementById("redcap-collisions")!;
+    container.innerHTML = "";
+    redcapCollisions = collisions;
+    if (collisions.length === 0) return;
+
+    const box = document.createElement("div");
+    box.className = "detail-box sanity-blocking";
+
+    const title = document.createElement("p");
+    title.className = "sanity-blocking-title";
+    title.textContent = `This file has ${collisions.length} protocol identifier${
+      collisions.length === 1 ? "" : "s"
+    } shared between rows that otherwise look like different protocols.`;
+    box.appendChild(title);
+
+    const list = document.createElement("ul");
+    for (const collision of collisions) {
+      const li = document.createElement("li");
+      const [a, b] = collision.protocolFields;
+      li.textContent = `"${collision.name}" appears in both "${a}" and "${b}". Check REDCap for a typo or an accidental cross-reference to a different protocol.`;
+      list.appendChild(li);
+    }
+    box.appendChild(list);
+
+    container.appendChild(box);
   }
 
   /** Updates the status line and warnings box for `key` from whatever is
@@ -162,6 +220,14 @@ export function renderAuditPage(app: HTMLElement): void {
         updateRunButtonState();
       });
     }
+
+    if (key === "redcap") {
+      renderRedcapCollisions(
+        hasBlockingIssues(sanityResult)
+          ? []
+          : buildRedcapLookup(parsed.rows).collisions
+      );
+    }
   }
 
   for (const slot of SLOTS) {
@@ -184,6 +250,7 @@ export function renderAuditPage(app: HTMLElement): void {
       loadedFiles.delete(slot.key);
       renderSanityChecks(slot.key, undefined, FILE_SCHEMAS[slot.key]);
       renderCsvWarnings(slot.key, undefined, () => {});
+      if (slot.key === "redcap") renderRedcapCollisions([]);
 
       try {
         const text = await file.text();
@@ -196,6 +263,7 @@ export function renderAuditPage(app: HTMLElement): void {
         renderSanityChecks(slot.key, undefined, FILE_SCHEMAS[slot.key]);
         setStatus(slot.key, `Failed to read ${file.name}`);
         showError(err instanceof Error ? err.message : String(err));
+        if (slot.key === "redcap") renderRedcapCollisions([]);
       }
 
       updateRunButtonState();
@@ -247,12 +315,37 @@ export function renderAuditPage(app: HTMLElement): void {
   const scannerEventColumns: Column<ScannerEventRow>[] = [
     { header: "Event ID", get: (r) => r.eventId },
     { header: "Protocol Number", get: (r) => r.protocolNumber },
+    { header: "Project Title", get: (r) => r.projectTitle, wrap: true },
     { header: "Service", get: (r) => r.service },
     { header: "Scan Time", get: (r) => r.scanTime },
     { header: "Quantity", get: (r) => r.quantity },
     { header: "Mandatory Service", get: (r) => r.mandatoryService },
     { header: "Scheduling User", get: (r) => r.schedulingUser },
     { header: "Check-In User", get: (r) => r.checkInUser },
+  ];
+
+  const humanMriExternalColumns: Column<HumanMriExternalEventRow>[] = [
+    { header: "Event ID", get: (r) => r.eventId },
+    { header: "Protocol Number", get: (r) => r.protocolNumber },
+    { header: "Project Title", get: (r) => r.projectTitle, wrap: true },
+    { header: "Scanner", get: (r) => r.scanner },
+    { header: "Service", get: (r) => r.service },
+    { header: "Scan Time", get: (r) => r.scanTime },
+    { header: "Quantity", get: (r) => r.quantity },
+    { header: "Mandatory Service", get: (r) => r.mandatoryService },
+    { header: "Scheduling User", get: (r) => r.schedulingUser },
+    { header: "Check-In User", get: (r) => r.checkInUser },
+  ];
+
+  const prodevConsistencyColumns: Column<ProdevConsistencyRow>[] = [
+    { header: "Event ID", get: (r) => r.eventId },
+    { header: "Protocol Number", get: (r) => r.protocolNumber },
+    { header: "Project Title", get: (r) => r.projectTitle, wrap: true },
+    { header: "Scan Time", get: (r) => r.scanTime },
+    { header: "Scanner", get: (r) => r.scanner },
+    { header: "Prodev Service Billed", get: (r) => r.prodevServiceBilled },
+    { header: "Prodev Service Without Suffix", get: (r) => r.prodevServiceWithoutSuffix },
+    { header: "Suffix Without Prodev Service", get: (r) => r.suffixWithoutProdevService },
   ];
 
   const addOnColumns: Column<AddOnWithoutMriRow>[] = [
@@ -268,6 +361,8 @@ export function renderAuditPage(app: HTMLElement): void {
     mismatches: [],
     dedupedMismatches: [],
     scannerEvents: [],
+    humanMriExternalEvents: [],
+    prodevConsistencyIssues: [],
     addOnsWithoutMri: [],
   };
 
@@ -285,6 +380,8 @@ export function renderAuditPage(app: HTMLElement): void {
         dedupedViolations,
         dedupedMismatches,
         scannerEvents,
+        humanMriExternalEvents,
+        prodevConsistencyIssues,
         addOnsWithoutMri,
       } = lastResult;
 
@@ -292,6 +389,8 @@ export function renderAuditPage(app: HTMLElement): void {
       setCount("deduped-violation-count", dedupedViolations.length);
       setCount("mismatch-count", dedupedMismatches.length);
       setCount("scanner-event-count", scannerEvents.length);
+      setCount("human-mri-external-count", humanMriExternalEvents.length);
+      setCount("prodev-consistency-count", prodevConsistencyIssues.length);
       setCount("addon-count", addOnsWithoutMri.length);
 
       renderTable(
@@ -317,6 +416,18 @@ export function renderAuditPage(app: HTMLElement): void {
         scannerEventColumns,
         scannerEvents,
         `No events found on the ${TARGET_SCANNER} scanner.`
+      );
+      renderTable(
+        "human-mri-external-table",
+        humanMriExternalColumns,
+        humanMriExternalEvents,
+        "No Human MRI (External) events found."
+      );
+      renderTable(
+        "prodev-consistency-table",
+        prodevConsistencyColumns,
+        prodevConsistencyIssues,
+        "No Prodev naming inconsistencies found."
       );
       renderTable(
         "addons-table",
@@ -361,6 +472,24 @@ export function renderAuditPage(app: HTMLElement): void {
       downloadCsv(
         `${TARGET_SCANNER.toLowerCase()}_scanner_events.csv`,
         toCsv(scannerEventColumns, lastResult.scannerEvents)
+      );
+    });
+
+  document
+    .getElementById("export-human-mri-external")!
+    .addEventListener("click", () => {
+      downloadCsv(
+        "human_mri_external_events.csv",
+        toCsv(humanMriExternalColumns, lastResult.humanMriExternalEvents)
+      );
+    });
+
+  document
+    .getElementById("export-prodev-consistency")!
+    .addEventListener("click", () => {
+      downloadCsv(
+        "prodev_naming_consistency.csv",
+        toCsv(prodevConsistencyColumns, lastResult.prodevConsistencyIssues)
       );
     });
 
