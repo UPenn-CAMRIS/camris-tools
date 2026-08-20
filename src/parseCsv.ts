@@ -173,8 +173,8 @@ export function diagnoseWarning(
       return {
         message:
           warning.code === "MissingQuotes"
-            ? `A quoted field opens with a double quote but never closes.${located} Inside a quoted field, a literal " must be written as two double quotes ("").`
-            : `A double quote inside a quoted field ends it early because it isn't doubled.${located} Inside a quoted field, a literal " must be written as two double quotes ("").`,
+            ? `A quoted field opens with a quote mark but never closes.${located} To include a literal quote mark inside a quoted field, write it twice ("").`
+            : `A quote mark inside this field is not escaped, so it ends the field early.${located} To include a literal quote mark inside a quoted field, write it twice ("").`,
         highlightOffset,
       };
     }
