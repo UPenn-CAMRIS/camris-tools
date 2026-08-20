@@ -100,10 +100,22 @@ h1 {
   border-radius: 8px;
 }
 
-.upload-row label {
-  font-weight: 600;
+.upload-label {
+  display: flex;
+  flex-direction: column;
   width: 180px;
   flex-shrink: 0;
+}
+
+.upload-row label {
+  font-weight: 600;
+}
+
+.upload-formats {
+  font-size: 0.78rem;
+  font-weight: normal;
+  color: #888;
+  margin-top: 0.15rem;
 }
 
 .upload-row .file-status {

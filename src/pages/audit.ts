@@ -27,12 +27,13 @@ interface FileSlot {
   key: "dogfish" | "cams" | "redcap";
   label: string;
   accept: string;
+  formats: string;
 }
 
 const SLOTS: FileSlot[] = [
-  { key: "dogfish", label: "Dogfish Events CSV", accept: ".csv" },
-  { key: "cams", label: "CAMS Data CSV", accept: ".csv" },
-  { key: "redcap", label: "REDCap Export CSV", accept: ".csv" },
+  { key: "dogfish", label: "Dogfish Events", accept: ".csv", formats: "CSV file" },
+  { key: "cams", label: "CAMS Data", accept: ".csv", formats: "CSV file" },
+  { key: "redcap", label: "REDCap Export", accept: ".csv", formats: "CSV file" },
 ];
 
 export function renderAuditPage(app: HTMLElement): void {
@@ -49,7 +50,10 @@ export function renderAuditPage(app: HTMLElement): void {
         (slot) => `
         <div class="upload-slot">
           <div class="upload-row">
-            <label for="file-${slot.key}">${slot.label}</label>
+            <div class="upload-label">
+              <label for="file-${slot.key}">${slot.label}</label>
+              <span class="upload-formats">${slot.formats}</span>
+            </div>
             <input type="file" id="file-${slot.key}" accept="${slot.accept}" />
             <span class="file-status" id="status-${slot.key}"></span>
           </div>

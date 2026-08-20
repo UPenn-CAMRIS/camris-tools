@@ -18,12 +18,18 @@ interface FileSlot {
   key: SlotKey;
   label: string;
   accept: string;
+  formats: string;
 }
 
 const SLOTS: FileSlot[] = [
-  { key: "contrastReport", label: "Contrast Report (.xlsx or .csv)", accept: ".xlsx,.csv" },
-  { key: "technologists", label: "CAMRIS Technologists CSV", accept: ".csv" },
-  { key: "cams", label: "CAMS Data CSV", accept: ".csv" },
+  {
+    key: "contrastReport",
+    label: "Contrast Report",
+    accept: ".xlsx,.csv",
+    formats: "Excel (.xlsx) or CSV file",
+  },
+  { key: "technologists", label: "CAMRIS Technologists", accept: ".csv", formats: "CSV file" },
+  { key: "cams", label: "CAMS Data", accept: ".csv", formats: "CSV file" },
 ];
 
 const contrastColumns: Column<ContrastOutputRow>[] = [
@@ -61,7 +67,10 @@ export function renderContrastPage(app: HTMLElement): void {
         (slot) => `
         <div class="upload-slot">
           <div class="upload-row">
-            <label for="file-${slot.key}">${slot.label}</label>
+            <div class="upload-label">
+              <label for="file-${slot.key}">${slot.label}</label>
+              <span class="upload-formats">${slot.formats}</span>
+            </div>
             <input type="file" id="file-${slot.key}" accept="${slot.accept}" />
             <span class="file-status" id="status-${slot.key}"></span>
           </div>
