@@ -419,6 +419,13 @@ for (const slot of SLOTS) {
     const file = input.files?.[0];
     if (!file) return;
 
+    // Clear the input right away. Without this, picking the same file
+    // again would not fire a change event at all in some browsers,
+    // since the input's value has not changed — leaving any earlier
+    // in-memory row correction silently in place instead of a fresh
+    // parse of the file as chosen.
+    input.value = "";
+
     errorBanner.style.display = "none";
     setStatus(slot.key, `Reading ${file.name}...`);
     loadedFiles.delete(slot.key);
