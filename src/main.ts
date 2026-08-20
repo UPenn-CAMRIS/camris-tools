@@ -164,21 +164,32 @@ function refreshFileDisplay(key: FileSlot["key"]): void {
   } else {
     setStatus(key, `${filename} — ${parsed.rows.length} rows`, "loaded");
   }
-  renderSanityChecks(key);
-  renderCsvWarnings(key);
+
+  const sanityResult = renderSanityChecks(key);
+
+  // A wrong or badly-renamed column means the whole file is probably
+  // the wrong upload. In that case, row-level formatting issues are a
+  // distraction — hide them so the column error stands out.
+  const csvWarningsContainer = document.getElementById(`warnings-${key}`)!;
+  csvWarningsContainer.innerHTML = "";
+  if (!hasBlockingIssues(sanityResult)) {
+    renderCsvWarnings(key);
+  }
 }
 
 /** Builds and shows the sanity-check results for `key`: missing required
  * columns block the audit and are shown first, then column-name and
- * coded-value warnings that do not block the audit. */
-function renderSanityChecks(key: FileSlot["key"]): void {
+ * coded-value warnings that do not block the audit. Returns the result
+ * so callers can decide what else to show based on it. */
+function renderSanityChecks(key: FileSlot["key"]): SanityCheckResult {
   const container = document.getElementById(`sanity-${key}`)!;
   container.innerHTML = "";
 
   const parsed = loadedFiles.get(key);
-  if (!parsed) return;
-
-  const result = runSanityChecks(FILE_SCHEMAS[key], parsed);
+  const result = parsed
+    ? runSanityChecks(FILE_SCHEMAS[key], parsed)
+    : { missingColumns: [], renamedColumns: [], unrecognizedValues: [], isEmpty: false };
+  if (!parsed) return result;
 
   const blockingCount = result.missingColumns.length + result.renamedColumns.length;
   if (blockingCount > 0) {
@@ -189,6 +200,8 @@ function renderSanityChecks(key: FileSlot["key"]): void {
   if (warningCount > 0) {
     container.appendChild(buildSanityWarningsBox(result, warningCount));
   }
+
+  return result;
 }
 
 function buildBlockingColumnsBox(result: SanityCheckResult): HTMLElement {
