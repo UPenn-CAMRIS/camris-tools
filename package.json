@@ -6,9 +6,10 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "test": "tsx test/run_test_set_1.ts"
+    "test": "tsx test/run_test_set_1.ts && tsx test/run_contrast_test_set_1.ts"
   },
   "dependencies": {
+    "exceljs": "^4.4.0",
     "papaparse": "^5.4.1"
   },
   "devDependencies": {

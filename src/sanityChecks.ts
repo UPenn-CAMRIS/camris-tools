@@ -1,5 +1,13 @@
-import type { CsvRow, ParsedCsv } from "./parseCsv";
 import { SERVICE_MAP, NO_SHOW_SERVICE } from "./audit";
+
+/** The minimum shape a sanity check needs: column names and rows keyed
+ * by column name. `ParsedCsv` satisfies this. So does a sheet read from
+ * an Excel file, which has no CSV-specific concepts like warnings or
+ * raw text. */
+export interface TabularData {
+  fields: string[];
+  rows: Record<string, unknown>[];
+}
 
 /** A required column that is missing, or present under a slightly
  * different name. `actualHeader` is set only for the "different name"
@@ -39,7 +47,7 @@ interface CodedColumnCheck {
   knownValues: Set<string>;
 }
 
-interface FileSchema {
+export interface FileSchema {
   requiredColumns: string[];
   codedColumns: CodedColumnCheck[];
 }
@@ -102,6 +110,29 @@ export const FILE_SCHEMAS = {
   redcap: REDCAP_SCHEMA,
 } as const;
 
+const CONTRAST_REPORT_SCHEMA: FileSchema = {
+  requiredColumns: [
+    "Begin Exam Time",
+    "Linked Study IRB Number",
+    "Provider/Resource",
+    "Procedure-Related Meds",
+    "Technologist",
+    "Accession #",
+  ],
+  codedColumns: [],
+};
+
+const TECHNOLOGISTS_SCHEMA: FileSchema = {
+  requiredColumns: ["Technologist", "PennKey"],
+  codedColumns: [],
+};
+
+export const CONTRAST_FILE_SCHEMAS = {
+  contrastReport: CONTRAST_REPORT_SCHEMA,
+  technologists: TECHNOLOGISTS_SCHEMA,
+  cams: CAMS_SCHEMA,
+} as const;
+
 function normalizeHeader(header: string): string {
   return header.trim().toLowerCase();
 }
@@ -139,7 +170,7 @@ function checkColumns(
 function checkCodedColumns(
   codedColumns: CodedColumnCheck[],
   availableFields: string[],
-  rows: CsvRow[]
+  rows: Record<string, unknown>[]
 ): ValueIssue[] {
   const issues: ValueIssue[] = [];
 
@@ -148,7 +179,7 @@ function checkCodedColumns(
 
     const counts = new Map<string, number>();
     for (const row of rows) {
-      const value = (row[column] ?? "").trim();
+      const value = String(row[column] ?? "").trim();
       if (knownValues.has(value)) continue;
       counts.set(value, (counts.get(value) ?? 0) + 1);
     }
@@ -162,20 +193,17 @@ function checkCodedColumns(
 
 export function runSanityChecks(
   schema: FileSchema,
-  parsed: ParsedCsv
+  data: TabularData
 ): SanityCheckResult {
-  const { missing, renamed } = checkColumns(
-    schema.requiredColumns,
-    parsed.fields
-  );
+  const { missing, renamed } = checkColumns(schema.requiredColumns, data.fields);
   return {
     missingColumns: missing,
     renamedColumns: renamed,
     unrecognizedValues: checkCodedColumns(
       schema.codedColumns,
-      parsed.fields,
-      parsed.rows
+      data.fields,
+      data.rows
     ),
-    isEmpty: parsed.rows.length === 0,
+    isEmpty: data.rows.length === 0,
   };
 }
