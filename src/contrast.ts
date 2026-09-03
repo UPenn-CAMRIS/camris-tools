@@ -1,3 +1,5 @@
+import { buildCamsLookup, classifyIndustry } from "./cams";
+
 export interface ContrastOutputRow {
   date: string;
   event_time: string;
@@ -13,8 +15,32 @@ export interface ContrastOutputRow {
   bill: string;
 }
 
+/** A row that passed both filters and would have been billed, but whose
+ * "Linked Study IRB Number" could not be classified against CAMS — it is
+ * blank, or names a protocol with no CAMS record — so the tool cannot
+ * tell whether the billing code should be CAMRIS-003 or CAMRIS-051. The
+ * row is left out of the billing output and listed here instead, the
+ * same way the Audit Tool reports an event with no CAMS match as a
+ * mismatch rather than guessing. */
+export interface ContrastMismatchRow {
+  date: string;
+  event_time: string;
+  /** Raw "Linked Study IRB Number" from the Contrast Report; "" when blank. */
+  irbNumber: string;
+  technologist: string;
+  userid: string;
+  specimen: string;
+  desc2: string;
+  /** "Procedure-Related Meds" — the value that made this a billable row. */
+  meds: string;
+  reason: string;
+}
+
 export interface ContrastResult {
   rows: ContrastOutputRow[];
+  /** Rows that would have been billed but have no usable CAMS match, so
+   * their billing code (CAMRIS-003 vs CAMRIS-051) can't be determined. */
+  mismatches: ContrastMismatchRow[];
   /** Contrast_Report rows with a blank "Procedure-Related Meds" value —
    * no contrast medication was given, so the row is not a billable
    * contrast injection. */
@@ -95,10 +121,18 @@ function formatTime(t: ExamDateTime): string {
 /** Builds the contrast-injection billing rows from Contrast_Report and
  * CAMRIS_Technologists. Keeps only rows with a non-blank
  * "Procedure-Related Meds" value and a Technologist found in the
- * technologist list — the same two filters `Contrast.jl` applies. */
+ * technologist list — the same two filters `Contrast.jl` applies.
+ *
+ * The billing code is chosen per row from CAMS: a protocol CAMS marks
+ * "Industry Sponsored" gets CAMRIS-051, any other CAMS-known protocol
+ * gets CAMRIS-003. This is the same industry test the Audit Tool runs
+ * (see `classifyIndustry` in ./cams). A kept row whose IRB number is
+ * blank or not in CAMS can't be classified, so it is left out of `rows`
+ * and reported in `mismatches` instead. */
 export function runContrast(
   contrastRows: Record<string, unknown>[],
-  technologistRows: Record<string, unknown>[]
+  technologistRows: Record<string, unknown>[],
+  camsRows: Record<string, unknown>[]
 ): ContrastResult {
   const pennKeyByTechnologist = new Map<string, string>();
   for (const row of technologistRows) {
@@ -107,7 +141,10 @@ export function runContrast(
     pennKeyByTechnologist.set(technologist, cellString(row["PennKey"]));
   }
 
+  const camsLookup = buildCamsLookup(camsRows);
+
   const rows: ContrastOutputRow[] = [];
+  const mismatches: ContrastMismatchRow[] = [];
   let skippedNoMeds = 0;
   let skippedNoTechMatch = 0;
 
@@ -125,22 +162,46 @@ export function runContrast(
     }
 
     const examTime = parseExamTime(row["Begin Exam Time"]);
+    const date = examTime ? formatDate(examTime) : "";
+    const event_time = examTime ? formatTime(examTime) : "";
+    const irbNumber = cellString(row["Linked Study IRB Number"]);
+    const specimen = cellString(row["Accession #"]);
+    const desc2 = cellString(row["Provider/Resource"]);
+
+    const industry = classifyIndustry(camsLookup, irbNumber);
+    if (industry === "unknown") {
+      mismatches.push({
+        date,
+        event_time,
+        irbNumber,
+        technologist,
+        userid,
+        specimen,
+        desc2,
+        meds: cellString(row["Procedure-Related Meds"]),
+        reason:
+          irbNumber === ""
+            ? "Linked Study IRB Number is blank"
+            : "No matching protocol in CAMS Data",
+      });
+      continue;
+    }
 
     rows.push({
-      date: examTime ? formatDate(examTime) : "",
-      event_time: examTime ? formatTime(examTime) : "",
-      project: cellString(row["Linked Study IRB Number"]),
+      date,
+      event_time,
+      project: irbNumber,
       userid,
-      specimen: cellString(row["Accession #"]),
-      desc2: cellString(row["Provider/Resource"]),
+      specimen,
+      desc2,
       lab: 7,
       sublab: 0,
-      code: "CAMRIS-003",
+      code: industry === "industry" ? "CAMRIS-051" : "CAMRIS-003",
       desc1: "Contrast Injection",
       quantity: 1,
       bill: "Y",
     });
   }
 
-  return { rows, skippedNoMeds, skippedNoTechMatch };
+  return { rows, mismatches, skippedNoMeds, skippedNoTechMatch };
 }

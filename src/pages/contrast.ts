@@ -1,6 +1,10 @@
 import { parseCsv, type ParsedCsv } from "../parseCsv";
 import { parseXlsxFile } from "../parseXlsx";
-import { runContrast, type ContrastOutputRow } from "../contrast";
+import {
+  runContrast,
+  type ContrastOutputRow,
+  type ContrastMismatchRow,
+} from "../contrast";
 import {
   runSanityChecks,
   hasBlockingIssues,
@@ -47,6 +51,18 @@ const contrastColumns: Column<ContrastOutputRow>[] = [
   { header: "bill", get: (r) => r.bill },
 ];
 
+const mismatchColumns: Column<ContrastMismatchRow>[] = [
+  { header: "date", get: (r) => r.date },
+  { header: "event_time", get: (r) => r.event_time },
+  { header: "Linked Study IRB Number", get: (r) => r.irbNumber },
+  { header: "technologist", get: (r) => r.technologist },
+  { header: "userid", get: (r) => r.userid },
+  { header: "specimen", get: (r) => r.specimen },
+  { header: "desc2", get: (r) => r.desc2, wrap: true },
+  { header: "Procedure-Related Meds", get: (r) => r.meds, wrap: true },
+  { header: "reason", get: (r) => r.reason },
+];
+
 export function renderContrastPage(app: HTMLElement): void {
   // Sanity checks and coded-value warnings work off `TabularData`
   // (fields + rows) alone, so this holds both CSV and Excel loads the
@@ -60,7 +76,7 @@ export function renderContrastPage(app: HTMLElement): void {
   app.innerHTML = `
     ${renderPageNav("contrast")}
     <h1>Contrast Injection Billing</h1>
-    <p class="subtitle">Upload the files below to build a contrast-injection billing file.</p>
+    <p class="subtitle">Upload the files below to build a contrast-injection billing file. The billing code is <code>CAMRIS-051</code> for protocols CAMS marks industry sponsored, and <code>CAMRIS-003</code> otherwise.</p>
 
     <div class="upload-grid">
       ${SLOTS.map(
@@ -92,6 +108,14 @@ export function renderContrastPage(app: HTMLElement): void {
           <button class="secondary" id="export-contrast">Export CSV</button>
         </div>
         <div class="table-wrap" id="contrast-table"></div>
+      </div>
+      <div class="results-section">
+        <div class="results-section-header">
+          <h2>CAMS Mismatches <span class="count" id="mismatch-row-count"></span></h2>
+          <button class="secondary" id="export-mismatches">Export CSV</button>
+        </div>
+        <p class="subtitle">Billable rows whose Linked Study IRB Number is blank or has no matching protocol in CAMS Data. These are not in the billing file above — resolve them (add the protocol to CAMS, or bill by hand) before submitting.</p>
+        <div class="table-wrap" id="mismatch-table"></div>
       </div>
     </div>
   `;
@@ -236,6 +260,7 @@ export function renderContrastPage(app: HTMLElement): void {
   }
 
   let lastRows: ContrastOutputRow[] = [];
+  let lastMismatches: ContrastMismatchRow[] = [];
 
   runButton.addEventListener("click", () => {
     errorBanner.style.display = "none";
@@ -243,9 +268,11 @@ export function renderContrastPage(app: HTMLElement): void {
     try {
       const contrastRows = loadedData.get("contrastReport")!.rows;
       const technologistRows = loadedData.get("technologists")!.rows;
+      const camsRows = loadedData.get("cams")!.rows;
 
-      const result = runContrast(contrastRows, technologistRows);
+      const result = runContrast(contrastRows, technologistRows, camsRows);
       lastRows = result.rows;
+      lastMismatches = result.mismatches;
 
       setCount("contrast-row-count", result.rows.length);
       renderSkippedRows(result.skippedNoMeds, result.skippedNoTechMatch);
@@ -254,6 +281,14 @@ export function renderContrastPage(app: HTMLElement): void {
         contrastColumns,
         result.rows,
         "No contrast injection rows found."
+      );
+
+      setCount("mismatch-row-count", result.mismatches.length);
+      renderTable(
+        "mismatch-table",
+        mismatchColumns,
+        result.mismatches,
+        "No mismatches — every billable row matched a CAMS protocol."
       );
 
       resultsEl.classList.add("visible");
@@ -265,5 +300,9 @@ export function renderContrastPage(app: HTMLElement): void {
 
   document.getElementById("export-contrast")!.addEventListener("click", () => {
     downloadCsv("contrast_output.csv", toCsv(contrastColumns, lastRows));
+  });
+
+  document.getElementById("export-mismatches")!.addEventListener("click", () => {
+    downloadCsv("contrast_mismatches.csv", toCsv(mismatchColumns, lastMismatches));
   });
 }

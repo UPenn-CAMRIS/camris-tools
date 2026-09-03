@@ -1,4 +1,10 @@
 import type { CsvRow } from "./parseCsv";
+import {
+  buildCamsLookup,
+  normalizeDogfishCamsProtocol,
+  SIX_DIGIT_PREFIX,
+  type CamsRecord,
+} from "./cams";
 import type {
   AddOnWithoutMriRow,
   AuditResult,
@@ -43,10 +49,9 @@ const STELLAR_CHANCE_SCANNERS = new Set(["SC3T", "SC7T"]);
 
 // Dogfish and CAMS protocol numbers use one of three formats:
 // - a 6-digit number, optionally followed by a suffix such as "_7X"
-//   (this code strips the suffix)
+//   (SIX_DIGIT_PREFIX, imported from ./cams, which strips the suffix)
 // - an animal protocol: "AR" followed by 6 digits
 // - a "xx-xxxx" number: 2 digits, a hyphen, then 4 digits
-const SIX_DIGIT_PREFIX = /^\d{6}/;
 const ANIMAL_PROTOCOL = /^AR\d{6}/;
 const YEAR_SEQUENCE_PROTOCOL = /^\d{2}-\d{4}/;
 
@@ -103,15 +108,6 @@ function isValidProtocolFormat(rawProtocolNumber: string): boolean {
     ANIMAL_PROTOCOL.test(rawProtocolNumber) ||
     YEAR_SEQUENCE_PROTOCOL.test(rawProtocolNumber)
   );
-}
-
-/** Converts a Dogfish or CAMS protocol number to its 6-digit base. It
- * strips any suffix. If a value does not start with 6 digits (for
- * example, an animal protocol), the function returns it unchanged. This
- * matches the convention already used in the source data. */
-function normalizeDogfishCamsProtocol(rawProtocolNumber: string): string {
-  const match = rawProtocolNumber.match(SIX_DIGIT_PREFIX);
-  return match ? match[0] : rawProtocolNumber;
 }
 
 /** REDCap's irb_protocol_number field holds free text, not a clean value,
@@ -330,31 +326,6 @@ function buildProdevConsistencyIssues(
   }
 
   return rows;
-}
-
-interface CamsRecord {
-  industrySponsored: string;
-}
-
-function buildCamsLookup(camsRows: CsvRow[]): Map<string, CamsRecord> {
-  const lookup = new Map<string, CamsRecord>();
-
-  for (const row of camsRows) {
-    const rawProtocol = field(row, "Protocol Number");
-    if (rawProtocol === "") continue;
-
-    const normalized = normalizeDogfishCamsProtocol(rawProtocol);
-    // The first matching record wins. The REDCap lookup below also
-    // collapses duplicate records this way, matching the original
-    // Julia audit script.
-    if (!lookup.has(normalized)) {
-      lookup.set(normalized, {
-        industrySponsored: field(row, "Industry Sponsored"),
-      });
-    }
-  }
-
-  return lookup;
 }
 
 interface RedcapRecord {

@@ -90,14 +90,22 @@ Upload three files:
 
 - **Contrast Report** — Excel (`.xlsx`) or CSV, the source event export
 - **CAMRIS Technologists** — CSV, maps each Technologist name to a PennKey
-- **CAMS Data** — CSV, wired in but not yet used by the output logic
+- **CAMS Data** — CSV, fund and industry-sponsorship data per protocol
 
 The tool keeps only rows with a non-blank "Procedure-Related Meds" value and
 a Technologist found in the CAMRIS Technologists file, then builds one output
-row per kept event with the fixed billing constants
-(`lab=7, sublab=0, code="CAMRIS-003", desc1="Contrast Injection", quantity=1,
-bill="Y"`). Rows skipped for each reason are counted and shown. The result is
-one table, exportable to CSV.
+row per kept event with the billing constants
+(`lab=7, sublab=0, desc1="Contrast Injection", quantity=1, bill="Y"`). The
+`code` is chosen per row from CAMS, using the same industry test as the Audit
+Tool (`classifyIndustry` in `cams.ts`): `CAMRIS-051` when CAMS marks the row's
+protocol "Industry Sponsored", `CAMRIS-003` for any other CAMS-known protocol.
+
+A kept row whose "Linked Study IRB Number" is blank, or names a protocol with
+no CAMS record, cannot be classified, so it is left out of the billing output
+and listed in a second **CAMS Mismatches** table instead — the same way the
+Audit Tool reports an event with no CAMS match rather than guessing. Rows
+skipped for each reason (no meds, no technologist match) are counted and
+shown. Both tables are exportable to CSV.
 
 ## Running it
 
@@ -138,8 +146,11 @@ src/
   audit.ts              the audit rule engine — protocol normalization,
                         event grouping, CAMS/REDCap matching, the violation
                         checks, the report tables
-  contrast.ts            the contrast rule engine — row filtering and output
-                         row construction
+  contrast.ts            the contrast rule engine — row filtering, per-row
+                         billing-code selection, output row construction
+  cams.ts                CAMS protocol lookup and the industry-sponsorship
+                         test, shared by audit.ts and contrast.ts so the
+                         two cannot answer "is this industry?" differently
   parseCsv.ts           CSV parsing (papaparse), tolerant of malformed rows
   parseXlsx.ts           Excel parsing (exceljs), for the Contrast Report
   sanityChecks.ts        required-column and coded-value checks, shared by
@@ -160,14 +171,15 @@ contrast_test_set_1/     sample data for the Contrast Injection Tool, plus
                           Contrast.jl, the Julia script this tool replaces
 ```
 
-`audit.ts` and `contrast.ts` are framework-agnostic (no DOM dependency),
-which is what lets `npm test` exercise both tools' logic from Node without a
-browser.
+`audit.ts`, `contrast.ts`, and `cams.ts` are framework-agnostic (no DOM
+dependency), which is what lets `npm test` exercise both tools' logic from
+Node without a browser.
 
 ## Design decisions and constraints
 
-Read this before you change `audit.ts`, `sanityChecks.ts`, or how a Dogfish
-service is recognized. It states rules that are easy to break by accident.
+Read this before you change `audit.ts`, `cams.ts`, `sanityChecks.ts`, or how
+a Dogfish service is recognized. It states rules that are easy to break by
+accident.
 
 ### Add a new Dogfish service here, not there
 
@@ -193,12 +205,26 @@ duplicate the list there.
 unless you add it to that line on purpose. Every non-industry variant added
 so far (External, after-hours, both Prodev tiers) was deliberately left out.
 
+### One definition of "is this protocol industry sponsored?"
+
+Both tools ask that question of CAMS, and must answer it the same way, so the
+lookup and the test live once in `cams.ts` — `buildCamsLookup()`,
+`normalizeDogfishCamsProtocol()`, and `classifyIndustry()`. The Audit Tool
+flags a mismatch between billed rate and sponsorship; the Contrast Injection
+Tool picks `CAMRIS-051` vs `CAMRIS-003` from it. "Industry" means a CAMS
+record whose "Industry Sponsored" is exactly `"Yes"`; `"No"`, `"Not
+Reported"`, and blank all read as not industry; no CAMS record at all is
+neither — the caller decides what to do with that (the audit lists it as a
+mismatch, and so does contrast). Do not fork this logic into either tool.
+
 ### A protocol number has one normalized form, but REDCap can give it several names
 
-`normalizeDogfishCamsProtocol()` strips a Dogfish or CAMS protocol number
-down to a 6-digit base, or leaves it unchanged if it's an animal (`AR` +
-6 digits) or `xx-xxxx` protocol. Dogfish and CAMS always agree on this one
-normalized form, so a plain lookup by that form works for both.
+`normalizeDogfishCamsProtocol()` (in `cams.ts`) strips a Dogfish or CAMS
+protocol number down to a 6-digit base, or leaves it unchanged if it's an
+animal (`AR` + 6 digits) or `xx-xxxx` protocol. Dogfish and CAMS always agree
+on this one normalized form, so a plain lookup by that form works for both.
+The Contrast Injection Tool normalizes its "Linked Study IRB Number" the same
+way to match CAMS.
 
 REDCap does not follow this rule. Its `irb_protocol_number` field is free
 text, and can carry more than one identifier for the same protocol — an
@@ -226,8 +252,8 @@ matching.
 
 Every file a user uploads is parsed and held in memory in the browser tab; it
 is never written to disk, sent over the network, or shared between the two
-tool pages. The CAMS upload on the Contrast page is wired in but currently
-unused by its output logic — do not assume it does anything yet.
+tool pages. Both pages take their own CAMS Data upload; each parses its own
+copy, and neither reuses the other's.
 
 ### `exceljs`, not `xlsx`/SheetJS
 
