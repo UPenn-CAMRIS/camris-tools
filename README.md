@@ -69,15 +69,15 @@ each results table in the app itself.
    direction. A protocol can legitimately use a different naming convention
    and still be correctly billed, so a row here is worth a look, not
    necessarily an error.
-5. **SC7T Scanner Events** — every raw Dogfish row on the SC7T scanner,
-   including no-shows and cancellations, unfiltered by any audit rule.
-6. **Human MRI (External) Events** — every raw Dogfish row billed as Human
-   MRI (External), on any scanner, unfiltered by any audit rule.
-7. **Add-On Fees Without MRI** — events billed for a Stimulus/Response
+5. **Add-On Fees Without MRI** — events billed for a Stimulus/Response
    Equipment and/or Neuroreader fee (at either the standard or
    "(Industry/CHOP)" rate) with no MRI service code on the same event.
    These fees are meant to ride along with a scan, so this is a
    data-quality flag independent of the CAMS/REDCap checks above.
+6. **SC7T Scanner Events** — every raw Dogfish row on the SC7T scanner,
+   including no-shows and cancellations, unfiltered by any audit rule.
+7. **Human MRI (External) Events** — every raw Dogfish row billed as Human
+   MRI (External), on any scanner, unfiltered by any audit rule.
 
 Every table can be exported to CSV from the button above it.
 
