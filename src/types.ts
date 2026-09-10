@@ -158,11 +158,35 @@ export interface ProdevConsistencyRow {
   suffixWithoutProdevService: boolean;
 }
 
+/** A "No Show/Cancellation Fee" event that is over its protocol's monthly
+ * late-cancellation allowance. Each protocol is allowed a fixed number of
+ * such events per calendar month (LATE_CANCELLATION_ALLOWANCE in
+ * audit.ts), the month taken from Scan Time. Protocols are grouped by
+ * their exact, un-normalized Dogfish Protocol Number, and cancellation
+ * rows are grouped into events by Event ID. Within a protocol-month the
+ * events are ordered by Scan Time, then Event ID; the first
+ * LATE_CANCELLATION_ALLOWANCE are treated as within allowance and every
+ * later one gets a row here. A cancellation row with a blank Event ID, or
+ * a Scan Time with no "YYYY-MM" prefix, cannot be placed and is left out. */
+export interface LateCancellationRow {
+  protocolNumber: string;
+  /** Calendar month of the event, "YYYY-MM", from Scan Time. */
+  month: string;
+  eventId: string;
+  scanTime: string;
+  scanner: string;
+  projectTitle: string;
+  /** Total late-cancellation events for this protocol in this month,
+   * including the ones within allowance. */
+  cancellationsInMonth: number;
+}
+
 export interface AuditResult {
   violations: ViolationRow[];
   dedupedViolations: DedupedViolationRow[];
   mismatches: MismatchRow[];
   dedupedMismatches: DedupedMismatchRow[];
+  excessLateCancellations: LateCancellationRow[];
   scannerEvents: ScannerEventRow[];
   humanMriExternalEvents: HumanMriExternalEventRow[];
   prodevConsistencyIssues: ProdevConsistencyRow[];

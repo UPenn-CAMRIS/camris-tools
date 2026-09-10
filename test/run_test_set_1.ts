@@ -29,6 +29,7 @@ const {
   violations,
   dedupedViolations,
   dedupedMismatches,
+  excessLateCancellations,
   scannerEvents,
   humanMriExternalEvents,
   prodevConsistencyIssues,
@@ -65,6 +66,12 @@ const mismatchCounts = {
   ).length,
 };
 console.log("Mismatch counts by type:", mismatchCounts);
+
+console.log(
+  `\n${excessLateCancellations.length} excess late-cancellation events ` +
+    `(over 2 per protocol per month)`
+);
+console.table(excessLateCancellations);
 
 console.log(`\n${scannerEvents.length} SC7T scanner events (incl. no-shows)`);
 console.table(scannerEvents.slice(0, 20));
