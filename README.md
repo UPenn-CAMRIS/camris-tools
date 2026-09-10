@@ -41,6 +41,10 @@ normalized protocol number) and flags:
 - Animal protocols billed under a human MRI service code, and vice versa
 - Stimulus/Response Equipment or Neuroreader (Research Report Reader) fees that
   were billed but not approved, or approved but never billed
+- A Stimulus/Response Equipment or Neuroreader fee billed at the standard rate
+  on an industry-sponsored protocol, or at the "(Industry/CHOP)" rate on one
+  that isn't — the same rate-vs-sponsorship check applied to Human MRI,
+  applied to these ancillary fees
 - Neuroreader fees billed on the SC3T or SC7T scanner (Stellar Chance)
 - A Prodev-tier service billed on a protocol whose number doesn't carry the
   usual Prodev naming, and vice versa
@@ -70,8 +74,9 @@ each results table in the app itself.
 6. **Human MRI (External) Events** — every raw Dogfish row billed as Human
    MRI (External), on any scanner, unfiltered by any audit rule.
 7. **Add-On Fees Without MRI** — events billed for a Stimulus/Response
-   Equipment and/or Neuroreader fee with no MRI service code on the same
-   event. These fees are meant to ride along with a scan, so this is a
+   Equipment and/or Neuroreader fee (at either the standard or
+   "(Industry/CHOP)" rate) with no MRI service code on the same event.
+   These fees are meant to ride along with a scan, so this is a
    data-quality flag independent of the CAMS/REDCap checks above.
 
 Every table can be exported to CSV from the button above it.
@@ -234,8 +239,11 @@ an animal-format protocol billing it wrongly skips the animal/human check.
 
 To add a service, do three things. Add the exact Dogfish text as a key in
 `SERVICE_MAP`. Add a matching field to `ServiceFlags` in `types.ts`. Add that
-field to `emptyFlags()`, `orFlags()`, and `hasMriService()` in `audit.ts`. Do
-not skip a step — a partial add compiles, but silently breaks one check.
+field to `emptyFlags()` and `orFlags()` in `audit.ts`, and — for an MRI
+service — to `hasMriService()`. Do not skip a step — a partial add compiles,
+but silently breaks one check. (An add-on fee like Stimulus or the Research
+Report Reader stays out of `hasMriService()` on purpose: it is exactly what
+the "Add-On Fees Without MRI" check looks for.)
 
 Match the Dogfish text exactly, including case. `sanityChecks.ts` reads its
 known-value list from `Object.keys(SERVICE_MAP)` automatically — do not
@@ -247,6 +255,12 @@ duplicate the list there.
 `animalMRIIndustry`. A new service flag does not count as industry billing
 unless you add it to that line on purpose. Every non-industry variant added
 so far (External, after-hours, both Prodev tiers) was deliberately left out.
+
+The `(Industry/CHOP)` ancillary-fee flags (`stimulusIndustry`,
+`neuroreaderIndustry`) are also deliberately not on that line. `billedIndustry`
+is about the MRI service code; those two fees have their own dedicated
+Stimulus/Neuroreader "Billed As Government" / "Billed As Industry" check in
+`computeFlags()`, which reads them directly.
 
 ### One definition of "is this protocol industry sponsored?"
 

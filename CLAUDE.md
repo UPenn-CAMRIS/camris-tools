@@ -13,7 +13,7 @@ Steps for any change:
 2. Commit the work on that branch.
 3. Verify on the branch before opening the PR:
    - `npm run build` — `tsc -b && vite build`
-   - `npm run test` — the two `tsx` suites in `test/`
+   - `npm run test` — the `tsx` suites in `test/`
 4. Push the branch and open a PR against `main`.
 5. Merge through the PR once CI is green and the change has been reviewed.
 
