@@ -123,6 +123,8 @@ Add a section to `CLAUDE.md` that states the rule:
 - The `type` is one of `feature`, `fix`, `docs`, `chore`.
 - Run the project's build and tests on the branch before you open the
   pull request.
+- Keep a feature-specific planning or design document on its branch.
+  Delete it before the branch merges. See "Planning documents".
 
 ### 1.6 `block-main-writes` hook
 
@@ -272,20 +274,27 @@ Claude cannot do this phase. You must do it on the machine.
 ### Claude
 
 1. Run `git checkout -b <type>/<short-name>`.
-2. Make the change.
-3. Run the project's build and tests on the branch.
-4. Show you the commit message. Wait for your approval.
-5. Run `git commit`.
-6. Run `git push -u origin <branch>`. This uses SSH, not the token.
-7. Run `gh pr create`. This needs the token. 1Password must be unlocked.
-8. Report the pull request link and the CI result.
+2. If you need planning or design notes, write them as files on this
+   branch.
+3. Make the change.
+4. Run the project's build and tests on the branch.
+5. Move any lasting content from the planning files into the permanent
+   documentation. Then delete every feature-specific planning file from
+   the branch.
+6. Show you the commit message. Wait for your approval.
+7. Run `git commit`.
+8. Run `git push -u origin <branch>`. This uses SSH, not the token.
+9. Run `gh pr create`. This needs the token. 1Password must be unlocked.
+10. Report the pull request link and the CI result.
 
 ### You
 
 1. Review the pull request.
-2. Wait for CI to pass.
-3. Merge the pull request. Use "Rebase" or "Squash" to keep `main` linear.
-4. Delete the branch.
+2. Check that the branch adds no feature-specific planning document to
+   `main`. If it does, ask Claude to remove it.
+3. Wait for CI to pass.
+4. Merge the pull request. Use "Rebase" or "Squash" to keep `main` linear.
+5. Delete the branch.
 
 Claude can also merge with `gh pr merge`, with the same token, if you ask
 for that.
@@ -295,6 +304,18 @@ for that.
 1. Run `git checkout main`.
 2. Run `git pull --ff-only`.
 3. Delete the local branch.
+
+## Planning documents
+
+- A planning or design document for one feature belongs on that feature's
+  branch only.
+- Delete the document from the branch before the branch merges. This stops
+  stale plans from reaching `main`.
+- If a plan has lasting value, move its content into the permanent
+  documentation. Then delete the plan file.
+- Claude Code writes plan-mode files outside the repository by default.
+  This rule does not change that. The rule covers any planning document
+  committed inside the repository.
 
 ## Known limits
 
