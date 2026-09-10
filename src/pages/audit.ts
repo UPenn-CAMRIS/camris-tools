@@ -111,6 +111,15 @@ export function renderAuditPage(app: HTMLElement): void {
 
       <div class="results-section">
         <div class="results-section-header">
+          <h2>Add-On Fees Without MRI <span class="count" id="addon-count"></span></h2>
+          <button class="secondary" id="export-addons">Export CSV</button>
+        </div>
+        <div class="table-wrap" id="addons-table"></div>
+        <p class="table-note">Events billed for a Stimulus/Response Equipment and/or Neuroreader (Research Report Reader) fee with no MRI service code on the same event — these fees are meant to accompany a scan, so one alone is a data-quality flag independent of the CAMS/REDCap checks.</p>
+      </div>
+
+      <div class="results-section">
+        <div class="results-section-header">
           <h2>${TARGET_SCANNER} Scanner Events <span class="count" id="scanner-event-count"></span></h2>
           <button class="secondary" id="export-scanner-events">Export CSV</button>
         </div>
@@ -125,15 +134,6 @@ export function renderAuditPage(app: HTMLElement): void {
         </div>
         <div class="table-wrap" id="human-mri-external-table"></div>
         <p class="table-note">Every Dogfish row billed as Human MRI (External), on any scanner — not filtered by any audit rule.</p>
-      </div>
-
-      <div class="results-section">
-        <div class="results-section-header">
-          <h2>Add-On Fees Without MRI <span class="count" id="addon-count"></span></h2>
-          <button class="secondary" id="export-addons">Export CSV</button>
-        </div>
-        <div class="table-wrap" id="addons-table"></div>
-        <p class="table-note">Events billed for a Stimulus/Response Equipment and/or Neuroreader (Research Report Reader) fee with no MRI service code on the same event — these fees are meant to accompany a scan, so one alone is a data-quality flag independent of the CAMS/REDCap checks.</p>
       </div>
     </div>
   `;
