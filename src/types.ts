@@ -9,7 +9,9 @@ export interface ServiceFlags {
   animalMRI: boolean;
   animalMRIIndustry: boolean;
   stimulus: boolean;
+  stimulusIndustry: boolean;
   neuroreader: boolean;
+  neuroreaderIndustry: boolean;
 }
 
 export interface ViolationRow {
@@ -23,8 +25,12 @@ export interface ViolationRow {
   humanBilledAsAnimal: boolean;
   stimulusBillingMissed: boolean;
   stimulusBillingExtra: boolean;
+  stimulusBilledAsGovernment: boolean;
+  stimulusBilledAsIndustry: boolean;
   neuroreaderBillingMissed: boolean;
   neuroreaderBillingExtra: boolean;
+  neuroreaderBilledAsGovernment: boolean;
+  neuroreaderBilledAsIndustry: boolean;
   neuroreaderAtStellarChance: boolean;
 }
 
@@ -45,8 +51,12 @@ export interface ComputedFlags {
   humanBilledAsAnimal: boolean;
   stimulusBillingMissed: boolean | undefined;
   stimulusBillingExtra: boolean | undefined;
+  stimulusBilledAsGovernment: boolean | undefined;
+  stimulusBilledAsIndustry: boolean | undefined;
   neuroreaderBillingMissed: boolean | undefined;
   neuroreaderBillingExtra: boolean | undefined;
+  neuroreaderBilledAsGovernment: boolean | undefined;
+  neuroreaderBilledAsIndustry: boolean | undefined;
   neuroreaderAtStellarChance: boolean;
 }
 
@@ -94,7 +104,8 @@ export interface ScannerEventRow {
  * both, but no main MRI service code. Events are grouped by Event ID,
  * and no-shows are excluded. These fees should ride along with a scan.
  * A fee with no scan is a data-quality flag, separate from the CAMS and
- * REDCap checks. */
+ * REDCap checks. Either rate of a fee — the standard service or its
+ * "(Industry/CHOP)" variant — sets that fee's column to true here. */
 export interface AddOnWithoutMriRow {
   eventId: string;
   protocolNumber: string;

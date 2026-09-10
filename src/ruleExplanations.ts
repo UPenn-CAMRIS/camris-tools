@@ -35,6 +35,16 @@ export const VIOLATION_RULE_EXPLANATIONS: RuleExplanation[] = [
       "Dogfish billed a Stimulus/Response Equipment fee for the protocol, but the approved REDCap review letter does not include that fee — an extra, unapproved fee may have been billed.",
   },
   {
+    label: "Stimulus Billed As Government",
+    description:
+      'Dogfish billed the standard Stimulus/Response Equipment fee, but CAMS marks the protocol as industry-sponsored — the fee should have carried the "(Industry/CHOP)" rate.',
+  },
+  {
+    label: "Stimulus Billed As Industry",
+    description:
+      'Dogfish billed the Stimulus/Response Equipment fee at the "(Industry/CHOP)" rate, but CAMS does not mark the protocol as industry-sponsored — the fee should have carried the standard rate.',
+  },
+  {
     label: "Neuroreader Billing Missed",
     description:
       "The protocol's approved REDCap review letter includes the Research Report Reader (Neuroreader) fee, but no such charge was found in Dogfish — a fee that should have been billed may have been missed.",
@@ -43,6 +53,16 @@ export const VIOLATION_RULE_EXPLANATIONS: RuleExplanation[] = [
     label: "Neuroreader Billing Extra",
     description:
       "Dogfish billed a Research Report Reader (Neuroreader) fee for the protocol, but the approved REDCap review letter does not include that fee — an extra, unapproved fee may have been billed.",
+  },
+  {
+    label: "Neuroreader Billed As Government",
+    description:
+      'Dogfish billed the standard Research Report Reader (Neuroreader) fee, but CAMS marks the protocol as industry-sponsored — the fee should have carried the "(Industry/CHOP)" rate.',
+  },
+  {
+    label: "Neuroreader Billed As Industry",
+    description:
+      'Dogfish billed the Research Report Reader (Neuroreader) fee at the "(Industry/CHOP)" rate, but CAMS does not mark the protocol as industry-sponsored — the fee should have carried the standard rate.',
   },
   {
     label: "Neuroreader Billed At Stellar Chance",
@@ -55,12 +75,12 @@ export const MISMATCH_RULE_EXPLANATIONS: RuleExplanation[] = [
   {
     label: "No CAMS Match",
     description:
-      "The event's protocol number could not be found in the CAMS data. The Industry Billed As Government and Government Billed As Industry checks need CAMS data, so only those two checks were skipped for this event. Every other check — Stimulus and Neuroreader billing, Animal/Human Billed As, Neuroreader Billed At Stellar Chance — still ran normally, and any violations they found still appear on the Violations tables above. If this row shows no violations, that means those other checks ran and found none, not that nothing was checked.",
+      "The event's protocol number could not be found in the CAMS data. The checks that compare a billed rate against CAMS sponsorship — Industry Billed As Government, Government Billed As Industry, and the Stimulus and Neuroreader Billed As Government / Billed As Industry fee-rate checks — were skipped for this event. Every other check — Stimulus and Neuroreader billing missed/extra, Animal/Human Billed As, Neuroreader Billed At Stellar Chance — still ran normally, and any violations they found still appear on the Violations tables above. If this row shows no violations, that means those other checks ran and found none, not that nothing was checked.",
   },
   {
     label: "No Active REDCap Match",
     description:
-      'No REDCap record with a completed review letter ("camris_review_letter_complete" = Complete) was found for this protocol. The four Stimulus and Neuroreader billing checks need an active REDCap record, so only those were skipped for this event. Every other check — Industry/Government Billed As, Animal/Human Billed As, Neuroreader Billed At Stellar Chance — still ran normally, and any violations they found still appear on the Violations tables above. This is expected for animal protocols, which REDCap does not track, so it does not by itself indicate a problem.',
+      'No REDCap record with a completed review letter ("camris_review_letter_complete" = Complete) was found for this protocol. The four Stimulus and Neuroreader billing missed/extra checks need an active REDCap record, so only those were skipped for this event. Every other check — Industry/Government Billed As (including the Stimulus and Neuroreader fee-rate checks, which use CAMS only), Animal/Human Billed As, Neuroreader Billed At Stellar Chance — still ran normally, and any violations they found still appear on the Violations tables above. This is expected for animal protocols, which REDCap does not track, so it does not by itself indicate a problem.',
   },
   {
     label: "Invalid Protocol Format",

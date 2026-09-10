@@ -31,17 +31,25 @@ export const SERVICE_MAP: Record<string, keyof ServiceFlags> = {
   "Animal MRI": "animalMRI",
   "Animal MRI (Industry/CHOP)": "animalMRIIndustry",
   "Stimulus/Response Equipment Usage Fee": "stimulus",
+  "Stimulus/Response Equipment Usage Fee (Industry/CHOP)": "stimulusIndustry",
   "Research Report Reader Fee": "neuroreader",
+  "Research Report Reader Fee (Industry/CHOP)": "neuroreaderIndustry",
 };
 
 export const NO_SHOW_SERVICE = "No Show/Cancellation Fee";
 export const TARGET_SCANNER = "SC7T";
 
-// Derived from SERVICE_MAP instead of a separate literal, so the two
-// cannot drift apart if Dogfish ever renames this service.
-const NEUROREADER_SERVICE = Object.keys(SERVICE_MAP).find(
-  (service) => SERVICE_MAP[service] === "neuroreader"
-)!;
+// Derived from SERVICE_MAP instead of separate literals, so the two
+// cannot drift apart if Dogfish ever renames a service. The Research
+// Report Reader fee has two Dogfish services — the standard one and the
+// "(Industry/CHOP)" rate — and the Stellar Chance check covers both.
+const READER_SERVICES = new Set(
+  Object.keys(SERVICE_MAP).filter(
+    (service) =>
+      SERVICE_MAP[service] === "neuroreader" ||
+      SERVICE_MAP[service] === "neuroreaderIndustry"
+  )
+);
 const HUMAN_MRI_EXTERNAL_SERVICE = Object.keys(SERVICE_MAP).find(
   (service) => SERVICE_MAP[service] === "humanMRIExternal"
 )!;
@@ -78,7 +86,9 @@ function emptyFlags(): ServiceFlags {
     animalMRI: false,
     animalMRIIndustry: false,
     stimulus: false,
+    stimulusIndustry: false,
     neuroreader: false,
+    neuroreaderIndustry: false,
   };
 }
 
@@ -94,7 +104,9 @@ function orFlags(a: ServiceFlags, b: ServiceFlags): ServiceFlags {
     animalMRI: a.animalMRI || b.animalMRI,
     animalMRIIndustry: a.animalMRIIndustry || b.animalMRIIndustry,
     stimulus: a.stimulus || b.stimulus,
+    stimulusIndustry: a.stimulusIndustry || b.stimulusIndustry,
     neuroreader: a.neuroreader || b.neuroreader,
+    neuroreaderIndustry: a.neuroreaderIndustry || b.neuroreaderIndustry,
   };
 }
 
@@ -179,7 +191,7 @@ function buildDogfishEvents(dogfishRows: CsvRow[]): DogfishEvent[] {
     if (flagKey) rowFlags[flagKey] = true;
 
     const rowNeuroreaderAtStellarChance =
-      service === NEUROREADER_SERVICE && STELLAR_CHANCE_SCANNERS.has(scanner);
+      READER_SERVICES.has(service) && STELLAR_CHANCE_SCANNERS.has(scanner);
 
     const existing = eventsById.get(eventId);
     if (existing) {
@@ -276,13 +288,17 @@ function buildAddOnsWithoutMri(events: DogfishEvent[]): AddOnWithoutMriRow[] {
 
   for (const event of events) {
     const { flags } = event;
-    const hasAddOn = flags.stimulus || flags.neuroreader;
+    // Either rate of a fee — the standard service or its "(Industry/CHOP)"
+    // variant — counts as that add-on being billed on the event.
+    const stimulusBilled = flags.stimulus || flags.stimulusIndustry;
+    const readerBilled = flags.neuroreader || flags.neuroreaderIndustry;
+    const hasAddOn = stimulusBilled || readerBilled;
     if (hasAddOn && !hasMriService(flags)) {
       rows.push({
         eventId: event.eventId,
         protocolNumber: event.protocolNumberRaw,
-        stimulus: flags.stimulus,
-        neuroreader: flags.neuroreader,
+        stimulus: stimulusBilled,
+        neuroreader: readerBilled,
       });
     }
   }
@@ -411,13 +427,21 @@ function computeFlags(
   const { flags, protocolNumberRaw } = event;
   const billedIndustry = flags.humanMRIIndustry || flags.animalMRIIndustry;
   const animalFormat = isAnimalProtocolFormat(protocolNumberRaw);
+  const camsIndustry = cams?.industrySponsored === "Yes";
+
+  // Either rate of an ancillary fee — the standard service or its
+  // "(Industry/CHOP)" variant — counts as that fee being billed for the
+  // REDCap approved-vs-billed reconciliation below. The rate-vs-
+  // sponsorship check further down is what looks at which rate it was.
+  const stimulusBilled = flags.stimulus || flags.stimulusIndustry;
+  const readerBilled = flags.neuroreader || flags.neuroreaderIndustry;
 
   return {
     industryBilledAsGovernment: cams
-      ? !billedIndustry && cams.industrySponsored === "Yes"
+      ? !billedIndustry && camsIndustry
       : undefined,
     governmentBilledAsIndustry: cams
-      ? billedIndustry && cams.industrySponsored !== "Yes"
+      ? billedIndustry && !camsIndustry
       : undefined,
     animalBilledAsHuman:
       (flags.humanMRI ||
@@ -430,16 +454,36 @@ function computeFlags(
     humanBilledAsAnimal:
       (flags.animalMRI || flags.animalMRIIndustry) && !animalFormat,
     stimulusBillingMissed: redcap
-      ? !flags.stimulus && redcap.stimulus
+      ? !stimulusBilled && redcap.stimulus
       : undefined,
     stimulusBillingExtra: redcap
-      ? flags.stimulus && !redcap.stimulus
+      ? stimulusBilled && !redcap.stimulus
+      : undefined,
+    // An ancillary fee should carry the "(Industry/CHOP)" rate when, and
+    // only when, CAMS marks the protocol industry-sponsored. These mirror
+    // industryBilledAsGovernment / governmentBilledAsIndustry above, but
+    // scoped to the specific fee billed on this event, and need a CAMS
+    // record the same way (no record -> undefined -> the event lands on
+    // the Mismatches table). The "(Industry/CHOP)" ancillary flags are
+    // deliberately kept out of billedIndustry (see README) — this pair of
+    // checks is the only place they are read.
+    stimulusBilledAsGovernment: cams
+      ? flags.stimulus && camsIndustry
+      : undefined,
+    stimulusBilledAsIndustry: cams
+      ? flags.stimulusIndustry && !camsIndustry
       : undefined,
     neuroreaderBillingMissed: redcap
-      ? !flags.neuroreader && redcap.neuroreader
+      ? !readerBilled && redcap.neuroreader
       : undefined,
     neuroreaderBillingExtra: redcap
-      ? flags.neuroreader && !redcap.neuroreader
+      ? readerBilled && !redcap.neuroreader
+      : undefined,
+    neuroreaderBilledAsGovernment: cams
+      ? flags.neuroreader && camsIndustry
+      : undefined,
+    neuroreaderBilledAsIndustry: cams
+      ? flags.neuroreaderIndustry && !camsIndustry
       : undefined,
     neuroreaderAtStellarChance: event.neuroreaderAtStellarChance,
   };
@@ -488,8 +532,12 @@ function hasAnyViolation(computed: ComputedFlags): boolean {
     computed.humanBilledAsAnimal === true ||
     computed.stimulusBillingMissed === true ||
     computed.stimulusBillingExtra === true ||
+    computed.stimulusBilledAsGovernment === true ||
+    computed.stimulusBilledAsIndustry === true ||
     computed.neuroreaderBillingMissed === true ||
     computed.neuroreaderBillingExtra === true ||
+    computed.neuroreaderBilledAsGovernment === true ||
+    computed.neuroreaderBilledAsIndustry === true ||
     computed.neuroreaderAtStellarChance
   );
 }
@@ -542,8 +590,15 @@ export function runAudit(
         humanBilledAsAnimal: computed.humanBilledAsAnimal,
         stimulusBillingMissed: computed.stimulusBillingMissed === true,
         stimulusBillingExtra: computed.stimulusBillingExtra === true,
+        stimulusBilledAsGovernment:
+          computed.stimulusBilledAsGovernment === true,
+        stimulusBilledAsIndustry: computed.stimulusBilledAsIndustry === true,
         neuroreaderBillingMissed: computed.neuroreaderBillingMissed === true,
         neuroreaderBillingExtra: computed.neuroreaderBillingExtra === true,
+        neuroreaderBilledAsGovernment:
+          computed.neuroreaderBilledAsGovernment === true,
+        neuroreaderBilledAsIndustry:
+          computed.neuroreaderBilledAsIndustry === true,
         neuroreaderAtStellarChance: computed.neuroreaderAtStellarChance,
       });
     }

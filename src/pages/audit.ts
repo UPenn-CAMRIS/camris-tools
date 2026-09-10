@@ -286,8 +286,12 @@ export function renderAuditPage(app: HTMLElement): void {
     { header: "Human Billed As Animal", get: (r) => r.humanBilledAsAnimal },
     { header: "Stimulus Billing Missed", get: (r) => r.stimulusBillingMissed },
     { header: "Stimulus Billing Extra", get: (r) => r.stimulusBillingExtra },
+    { header: "Stimulus Billed As Government", get: (r) => r.stimulusBilledAsGovernment },
+    { header: "Stimulus Billed As Industry", get: (r) => r.stimulusBilledAsIndustry },
     { header: "Neuroreader Billing Missed", get: (r) => r.neuroreaderBillingMissed },
     { header: "Neuroreader Billing Extra", get: (r) => r.neuroreaderBillingExtra },
+    { header: "Neuroreader Billed As Government", get: (r) => r.neuroreaderBilledAsGovernment },
+    { header: "Neuroreader Billed As Industry", get: (r) => r.neuroreaderBilledAsIndustry },
     { header: "Neuroreader Billed At Stellar Chance", get: (r) => r.neuroreaderAtStellarChance },
   ];
 
@@ -299,8 +303,12 @@ export function renderAuditPage(app: HTMLElement): void {
     { header: "Human Billed As Animal", get: (r) => r.humanBilledAsAnimal },
     { header: "Stimulus Billing Missed", get: (r) => r.stimulusBillingMissed },
     { header: "Stimulus Billing Extra", get: (r) => r.stimulusBillingExtra },
+    { header: "Stimulus Billed As Government", get: (r) => r.stimulusBilledAsGovernment },
+    { header: "Stimulus Billed As Industry", get: (r) => r.stimulusBilledAsIndustry },
     { header: "Neuroreader Billing Missed", get: (r) => r.neuroreaderBillingMissed },
     { header: "Neuroreader Billing Extra", get: (r) => r.neuroreaderBillingExtra },
+    { header: "Neuroreader Billed As Government", get: (r) => r.neuroreaderBilledAsGovernment },
+    { header: "Neuroreader Billed As Industry", get: (r) => r.neuroreaderBilledAsIndustry },
     { header: "Neuroreader Billed At Stellar Chance", get: (r) => r.neuroreaderAtStellarChance },
   ];
 
