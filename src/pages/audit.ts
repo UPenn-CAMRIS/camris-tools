@@ -1,5 +1,11 @@
 import { parseCsv, type ParsedCsv } from "../parseCsv";
-import { runAudit, buildRedcapLookup, TARGET_SCANNER } from "../audit";
+import {
+  runAudit,
+  buildRedcapLookup,
+  TARGET_SCANNER,
+  LATE_CANCELLATION_ALLOWANCE,
+  NO_SHOW_SERVICE,
+} from "../audit";
 import {
   runSanityChecks,
   hasBlockingIssues,
@@ -12,6 +18,7 @@ import type {
   DedupedMismatchRow,
   DedupedViolationRow,
   HumanMriExternalEventRow,
+  LateCancellationRow,
   ProdevConsistencyRow,
   RedcapNameCollision,
   ScannerEventRow,
@@ -116,6 +123,15 @@ export function renderAuditPage(app: HTMLElement): void {
         </div>
         <div class="table-wrap" id="addons-table"></div>
         <p class="table-note">Events billed for a Stimulus/Response Equipment and/or Neuroreader (Research Report Reader) fee with no MRI service code on the same event — these fees are meant to accompany a scan, so one alone is a data-quality flag independent of the CAMS/REDCap checks.</p>
+      </div>
+
+      <div class="results-section">
+        <div class="results-section-header">
+          <h2>Excess Late Cancellations <span class="count" id="late-cancellation-count"></span></h2>
+          <button class="secondary" id="export-late-cancellations">Export CSV</button>
+        </div>
+        <div class="table-wrap" id="late-cancellations-table"></div>
+        <p class="table-note">Each protocol is allowed ${LATE_CANCELLATION_ALLOWANCE} late cancellation events ("${NO_SHOW_SERVICE}") per calendar month, the month taken from Scan Time. Once a protocol goes past that in a month, every later cancellation event that month is listed here — one row per event, with its Event ID. Events are ordered by Scan Time then Event ID, so the first ${LATE_CANCELLATION_ALLOWANCE} in the month are the ones treated as within allowance. Protocols are grouped by their exact Dogfish Protocol Number (no normalization).</p>
       </div>
 
       <div class="results-section">
@@ -363,11 +379,22 @@ export function renderAuditPage(app: HTMLElement): void {
     { header: "Neuroreader", get: (r) => r.neuroreader },
   ];
 
+  const lateCancellationColumns: Column<LateCancellationRow>[] = [
+    { header: "Protocol Number", get: (r) => r.protocolNumber },
+    { header: "Month", get: (r) => r.month },
+    { header: "Event ID", get: (r) => r.eventId },
+    { header: "Scan Time", get: (r) => r.scanTime },
+    { header: "Scanner", get: (r) => r.scanner },
+    { header: "Project Title", get: (r) => r.projectTitle, wrap: true },
+    { header: "Cancellations In Month", get: (r) => String(r.cancellationsInMonth) },
+  ];
+
   let lastResult: AuditResult = {
     violations: [],
     dedupedViolations: [],
     mismatches: [],
     dedupedMismatches: [],
+    excessLateCancellations: [],
     scannerEvents: [],
     humanMriExternalEvents: [],
     prodevConsistencyIssues: [],
@@ -387,6 +414,7 @@ export function renderAuditPage(app: HTMLElement): void {
         violations,
         dedupedViolations,
         dedupedMismatches,
+        excessLateCancellations,
         scannerEvents,
         humanMriExternalEvents,
         prodevConsistencyIssues,
@@ -396,6 +424,7 @@ export function renderAuditPage(app: HTMLElement): void {
       setCount("violation-count", violations.length);
       setCount("deduped-violation-count", dedupedViolations.length);
       setCount("mismatch-count", dedupedMismatches.length);
+      setCount("late-cancellation-count", excessLateCancellations.length);
       setCount("scanner-event-count", scannerEvents.length);
       setCount("human-mri-external-count", humanMriExternalEvents.length);
       setCount("prodev-consistency-count", prodevConsistencyIssues.length);
@@ -418,6 +447,12 @@ export function renderAuditPage(app: HTMLElement): void {
         mismatchColumns,
         dedupedMismatches,
         "No mismatches found."
+      );
+      renderTable(
+        "late-cancellations-table",
+        lateCancellationColumns,
+        excessLateCancellations,
+        `No protocol exceeded ${LATE_CANCELLATION_ALLOWANCE} late cancellations in a month.`
       );
       renderTable(
         "scanner-events-table",
@@ -473,6 +508,15 @@ export function renderAuditPage(app: HTMLElement): void {
       toCsv(mismatchColumns, lastResult.dedupedMismatches)
     );
   });
+
+  document
+    .getElementById("export-late-cancellations")!
+    .addEventListener("click", () => {
+      downloadCsv(
+        "excess_late_cancellations.csv",
+        toCsv(lateCancellationColumns, lastResult.excessLateCancellations)
+      );
+    });
 
   document
     .getElementById("export-scanner-events")!

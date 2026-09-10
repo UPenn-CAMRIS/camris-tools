@@ -12,6 +12,7 @@ import type {
   DedupedMismatchRow,
   DedupedViolationRow,
   HumanMriExternalEventRow,
+  LateCancellationRow,
   MismatchRow,
   ProdevConsistencyRow,
   RedcapNameCollision,
@@ -38,6 +39,10 @@ export const SERVICE_MAP: Record<string, keyof ServiceFlags> = {
 
 export const NO_SHOW_SERVICE = "No Show/Cancellation Fee";
 export const TARGET_SCANNER = "SC7T";
+
+// How many "No Show/Cancellation Fee" events a single protocol is allowed
+// per calendar month before the rest are reported as excess.
+export const LATE_CANCELLATION_ALLOWANCE = 2;
 
 // Derived from SERVICE_MAP instead of separate literals, so the two
 // cannot drift apart if Dogfish ever renames a service. The Research
@@ -261,6 +266,100 @@ function buildHumanMriExternalEvents(
       checkInUser: field(row, "Check-In User"),
     });
   }
+
+  return rows;
+}
+
+/** Groups every "No Show/Cancellation Fee" row into cancellation events
+ * (by Event ID) and, per protocol per calendar month, reports the events
+ * beyond LATE_CANCELLATION_ALLOWANCE. The month comes from Scan Time.
+ * Protocols are grouped by their exact Dogfish Protocol Number — no
+ * normalization — so "819126" and "819126-C" count separately. Within a
+ * protocol-month the events are ordered by Scan Time, then Event ID, and
+ * every event past the allowance gets one row, carrying the month's total
+ * cancellation count. A row with a blank Event ID, a blank Protocol
+ * Number, or a Scan Time with no leading "YYYY-MM" is skipped — it cannot
+ * be tied to a specific event, protocol, or month. */
+function buildExcessLateCancellations(
+  dogfishRows: CsvRow[]
+): LateCancellationRow[] {
+  interface CancellationEvent {
+    eventId: string;
+    protocolNumber: string;
+    month: string;
+    scanTime: string;
+    scanner: string;
+    projectTitle: string;
+  }
+
+  // Collapse the raw rows to one entry per Event ID first — a single
+  // cancellation event can be billed on more than one Dogfish row.
+  const eventsById = new Map<string, CancellationEvent>();
+
+  for (const row of dogfishRows) {
+    if (field(row, "Service") !== NO_SHOW_SERVICE) continue;
+
+    const eventId = field(row, "Event ID");
+    if (eventId === "" || eventsById.has(eventId)) continue;
+
+    const protocolNumber = field(row, "Protocol Number");
+    if (protocolNumber === "") continue;
+
+    const scanTime = field(row, "Scan Time");
+    const month = scanTime.match(/^\d{4}-\d{2}/)?.[0];
+    if (!month) continue;
+
+    eventsById.set(eventId, {
+      eventId,
+      protocolNumber,
+      month,
+      scanTime,
+      scanner: field(row, "Scanner"),
+      projectTitle: field(row, "Project Title"),
+    });
+  }
+
+  // Bucket the events by (protocol, month). The key is a JSON array —
+  // like the JSON keys dedupeViolations uses — so no delimiter can
+  // collide with a character inside the protocol number.
+  const byProtocolMonth = new Map<string, CancellationEvent[]>();
+  for (const event of eventsById.values()) {
+    const key = JSON.stringify([event.protocolNumber, event.month]);
+    const bucket = byProtocolMonth.get(key);
+    if (bucket) bucket.push(event);
+    else byProtocolMonth.set(key, [event]);
+  }
+
+  const rows: LateCancellationRow[] = [];
+  for (const bucket of byProtocolMonth.values()) {
+    if (bucket.length <= LATE_CANCELLATION_ALLOWANCE) continue;
+
+    bucket.sort(
+      (a, b) =>
+        a.scanTime.localeCompare(b.scanTime) ||
+        a.eventId.localeCompare(b.eventId)
+    );
+
+    for (const event of bucket.slice(LATE_CANCELLATION_ALLOWANCE)) {
+      rows.push({
+        protocolNumber: event.protocolNumber,
+        month: event.month,
+        eventId: event.eventId,
+        scanTime: event.scanTime,
+        scanner: event.scanner,
+        projectTitle: event.projectTitle,
+        cancellationsInMonth: bucket.length,
+      });
+    }
+  }
+
+  rows.sort(
+    (a, b) =>
+      a.protocolNumber.localeCompare(b.protocolNumber) ||
+      a.month.localeCompare(b.month) ||
+      a.scanTime.localeCompare(b.scanTime) ||
+      a.eventId.localeCompare(b.eventId)
+  );
 
   return rows;
 }
@@ -609,6 +708,7 @@ export function runAudit(
     dedupedViolations: dedupeViolations(violations),
     mismatches,
     dedupedMismatches: dedupeMismatches(mismatches),
+    excessLateCancellations: buildExcessLateCancellations(dogfishRows),
     scannerEvents: buildScannerEvents(dogfishRows),
     humanMriExternalEvents: buildHumanMriExternalEvents(dogfishRows),
     prodevConsistencyIssues: buildProdevConsistencyIssues(events),

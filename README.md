@@ -74,9 +74,19 @@ each results table in the app itself.
    "(Industry/CHOP)" rate) with no MRI service code on the same event.
    These fees are meant to ride along with a scan, so this is a
    data-quality flag independent of the CAMS/REDCap checks above.
-6. **SC7T Scanner Events** — every raw Dogfish row on the SC7T scanner,
+6. **Excess Late Cancellations** — each protocol is allowed two late
+   cancellation events (`No Show/Cancellation Fee`) per calendar month,
+   the month taken from Scan Time. Once a protocol goes past two in a
+   month, every later cancellation event that month gets a row here, with
+   its Event ID and that month's total cancellation count. Events are
+   ordered by Scan Time then Event ID, so the first two in the month are
+   the ones treated as within allowance. Protocols are grouped by their
+   exact Dogfish protocol number (no normalization), and cancellation
+   rows are grouped into events by Event ID. The Dogfish data does not
+   distinguish a late cancellation from a no-show, so both are counted.
+7. **SC7T Scanner Events** — every raw Dogfish row on the SC7T scanner,
    including no-shows and cancellations, unfiltered by any audit rule.
-7. **Human MRI (External) Events** — every raw Dogfish row billed as Human
+8. **Human MRI (External) Events** — every raw Dogfish row billed as Human
    MRI (External), on any scanner, unfiltered by any audit rule.
 
 Every table can be exported to CSV from the button above it.
