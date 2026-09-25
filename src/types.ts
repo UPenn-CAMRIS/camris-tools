@@ -181,12 +181,35 @@ export interface LateCancellationRow {
   cancellationsInMonth: number;
 }
 
+/** A "No Show/Cancellation Fee" event billed to a Prodev protocol. A
+ * protocol counts as Prodev when its raw Dogfish Protocol Number ends
+ * with "-P", "_P", or "Prodev" (the same ending the Prodev naming check
+ * tests), or when another Dogfish event in the upload billed that exact
+ * protocol number at a Prodev tier. Protocols are matched by their
+ * exact, un-normalized number. No-show rows are grouped into events by
+ * Event ID, one row per event. */
+export interface NoShowOnProdevRow {
+  eventId: string;
+  protocolNumber: string;
+  projectTitle: string;
+  scanTime: string;
+  scanner: string;
+  /** The protocol number has the Prodev ending. */
+  prodevSuffix: boolean;
+  /** Another event billed this protocol at a Prodev tier. */
+  prodevBilledOnProtocol: boolean;
+  /** The Prodev-tier services billed on the protocol's other events,
+   * comma-separated; "" when there were none. */
+  prodevServicesBilled: string;
+}
+
 export interface AuditResult {
   violations: ViolationRow[];
   dedupedViolations: DedupedViolationRow[];
   mismatches: MismatchRow[];
   dedupedMismatches: DedupedMismatchRow[];
   excessLateCancellations: LateCancellationRow[];
+  noShowsOnProdevProtocols: NoShowOnProdevRow[];
   scannerEvents: ScannerEventRow[];
   humanMriExternalEvents: HumanMriExternalEventRow[];
   prodevConsistencyIssues: ProdevConsistencyRow[];

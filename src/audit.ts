@@ -14,6 +14,7 @@ import type {
   HumanMriExternalEventRow,
   LateCancellationRow,
   MismatchRow,
+  NoShowOnProdevRow,
   ProdevConsistencyRow,
   RedcapNameCollision,
   ScannerEventRow,
@@ -72,6 +73,15 @@ const YEAR_SEQUENCE_PROTOCOL = /^\d{2}-\d{4}/;
 // or "Prodev" (case-insensitive) on its raw, un-normalized number — the
 // "-P" would otherwise be stripped by normalizeDogfishCamsProtocol.
 const PRODEV_PROTOCOL_SUFFIX = /(?:[-_]p|prodev)$/i;
+
+// The Dogfish services for the two Prodev tiers, derived from SERVICE_MAP
+// like READER_SERVICES above.
+const PRODEV_TIER_1_SERVICE = Object.keys(SERVICE_MAP).find(
+  (service) => SERVICE_MAP[service] === "humanMRIProdevTier1"
+)!;
+const PRODEV_TIER_2_SERVICE = Object.keys(SERVICE_MAP).find(
+  (service) => SERVICE_MAP[service] === "humanMRIProdevTier2"
+)!;
 
 /** Reads a field from a raw CSV row. Returns "" if the field is missing,
  * and trims whitespace either way. */
@@ -405,6 +415,15 @@ function buildAddOnsWithoutMri(events: DogfishEvent[]): AddOnWithoutMriRow[] {
   return rows;
 }
 
+/** The Dogfish service names of the Prodev tiers billed on an event, in
+ * tier order. Empty when the event billed neither tier. */
+function billedProdevTiers(flags: ServiceFlags): string[] {
+  const tiers: string[] = [];
+  if (flags.humanMRIProdevTier1) tiers.push(PRODEV_TIER_1_SERVICE);
+  if (flags.humanMRIProdevTier2) tiers.push(PRODEV_TIER_2_SERVICE);
+  return tiers;
+}
+
 /** Checks each event's Prodev-tier billing against its protocol number's
  * naming. The "-P"/"_P"/"Prodev" ending does not say which tier, so both
  * tiers count as one "Prodev" concept for this check. */
@@ -414,11 +433,8 @@ function buildProdevConsistencyIssues(
   const rows: ProdevConsistencyRow[] = [];
 
   for (const event of events) {
-    const { flags, protocolNumberRaw } = event;
-    const billedTiers = [
-      flags.humanMRIProdevTier1 ? "Human MRI (Prodev Tier 1)" : undefined,
-      flags.humanMRIProdevTier2 ? "Human MRI (Prodev Tier 2)" : undefined,
-    ].filter((tier): tier is string => tier !== undefined);
+    const { protocolNumberRaw } = event;
+    const billedTiers = billedProdevTiers(event.flags);
 
     const hasProdevService = billedTiers.length > 0;
     const hasProdevSuffix = PRODEV_PROTOCOL_SUFFIX.test(protocolNumberRaw);
@@ -439,6 +455,76 @@ function buildProdevConsistencyIssues(
       });
     }
   }
+
+  return rows;
+}
+
+/** Reports every "No Show/Cancellation Fee" event whose protocol is a
+ * Prodev protocol. A protocol counts as Prodev when either:
+ * - its raw Dogfish Protocol Number has the Prodev ending
+ *   (PRODEV_PROTOCOL_SUFFIX, the same test the Prodev naming check uses), or
+ * - some other Dogfish event in the upload billed that same protocol at
+ *   a Prodev tier (the same Prodev-tier flags the naming check reads).
+ * Protocols are matched by their exact, un-normalized Dogfish Protocol
+ * Number, because normalization strips the "-P" that separates a Prodev
+ * protocol from its parent. No-show rows are grouped into events by
+ * Event ID; a row with a blank Event ID or blank Protocol Number is
+ * skipped, as it cannot be tied to an event or protocol. */
+function buildNoShowsOnProdevProtocols(
+  dogfishRows: CsvRow[],
+  events: DogfishEvent[]
+): NoShowOnProdevRow[] {
+  // `events` holds only the non-no-show billing, so this is the Prodev
+  // tiers each protocol was billed at by its real scans.
+  const prodevTiersByProtocol = new Map<string, Set<string>>();
+  for (const event of events) {
+    for (const tier of billedProdevTiers(event.flags)) {
+      const tiers = prodevTiersByProtocol.get(event.protocolNumberRaw);
+      if (tiers) tiers.add(tier);
+      else prodevTiersByProtocol.set(event.protocolNumberRaw, new Set([tier]));
+    }
+  }
+
+  const rows: NoShowOnProdevRow[] = [];
+  const seenEventIds = new Set<string>();
+
+  for (const row of dogfishRows) {
+    if (field(row, "Service") !== NO_SHOW_SERVICE) continue;
+
+    const eventId = field(row, "Event ID");
+    if (eventId === "" || seenEventIds.has(eventId)) continue;
+
+    const protocolNumber = field(row, "Protocol Number");
+    if (protocolNumber === "") continue;
+
+    const prodevSuffix = PRODEV_PROTOCOL_SUFFIX.test(protocolNumber);
+    const prodevTiers = prodevTiersByProtocol.get(protocolNumber);
+    if (!prodevSuffix && !prodevTiers) continue;
+
+    seenEventIds.add(eventId);
+    rows.push({
+      eventId,
+      protocolNumber,
+      projectTitle: field(row, "Project Title"),
+      scanTime: field(row, "Scan Time"),
+      scanner: field(row, "Scanner"),
+      prodevSuffix,
+      prodevBilledOnProtocol: prodevTiers !== undefined,
+      prodevServicesBilled: [
+        PRODEV_TIER_1_SERVICE,
+        PRODEV_TIER_2_SERVICE,
+      ]
+        .filter((tier) => prodevTiers?.has(tier))
+        .join(", "),
+    });
+  }
+
+  rows.sort(
+    (a, b) =>
+      a.protocolNumber.localeCompare(b.protocolNumber) ||
+      a.scanTime.localeCompare(b.scanTime) ||
+      a.eventId.localeCompare(b.eventId)
+  );
 
   return rows;
 }
@@ -709,6 +795,10 @@ export function runAudit(
     mismatches,
     dedupedMismatches: dedupeMismatches(mismatches),
     excessLateCancellations: buildExcessLateCancellations(dogfishRows),
+    noShowsOnProdevProtocols: buildNoShowsOnProdevProtocols(
+      dogfishRows,
+      events
+    ),
     scannerEvents: buildScannerEvents(dogfishRows),
     humanMriExternalEvents: buildHumanMriExternalEvents(dogfishRows),
     prodevConsistencyIssues: buildProdevConsistencyIssues(events),

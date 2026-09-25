@@ -48,6 +48,7 @@ normalized protocol number) and flags:
 - Neuroreader fees billed on the SC3T or SC7T scanner (Stellar Chance)
 - A Prodev-tier service billed on a protocol whose number doesn't carry the
   usual Prodev naming, and vice versa
+- A no-show billed to a Prodev protocol
 
 Full plain-English descriptions of each rule are in an expandable panel under
 each results table in the app itself.
@@ -84,9 +85,17 @@ each results table in the app itself.
    exact Dogfish protocol number (no normalization), and cancellation
    rows are grouped into events by Event ID. The Dogfish data does not
    distinguish a late cancellation from a no-show, so both are counted.
-7. **SC7T Scanner Events** — every raw Dogfish row on the SC7T scanner,
+7. **No-Shows Billed To Prodev Protocols** — every no-show event
+   (`No Show/Cancellation Fee`) whose protocol is a Prodev protocol, one
+   row per Event ID. A protocol counts as Prodev when its raw protocol
+   number has the same "-P"/"_P"/"Prodev" ending the Prodev Naming
+   Consistency check uses, or when another event in the upload billed
+   that exact protocol number at Prodev Tier 1 or 2. Protocol numbers
+   must match exactly (no normalization), so a Prodev scan on `832792-P`
+   does not mark a no-show on `832792`.
+8. **SC7T Scanner Events** — every raw Dogfish row on the SC7T scanner,
    including no-shows and cancellations, unfiltered by any audit rule.
-8. **Human MRI (External) Events** — every raw Dogfish row billed as Human
+9. **Human MRI (External) Events** — every raw Dogfish row billed as Human
    MRI (External), on any scanner, unfiltered by any audit rule.
 
 Every table can be exported to CSV from the button above it.
@@ -309,6 +318,11 @@ The Prodev naming check tests the protocol number's ending, before
 normalization strips a trailing `-P`. Always run this kind of check against
 `protocolNumberRaw`, never against the normalized form used for CAMS/REDCap
 matching.
+
+Two reports decide "is this Prodev?": Prodev Naming Consistency and
+No-Shows Billed To Prodev Protocols. Both read the same
+`PRODEV_PROTOCOL_SUFFIX` and the same `billedProdevTiers()` in `audit.ts`.
+Change the Prodev definition there, not in either report.
 
 ### No server, no persistence, no shared state between tools
 

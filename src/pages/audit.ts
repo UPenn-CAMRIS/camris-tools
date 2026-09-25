@@ -19,6 +19,7 @@ import type {
   DedupedViolationRow,
   HumanMriExternalEventRow,
   LateCancellationRow,
+  NoShowOnProdevRow,
   ProdevConsistencyRow,
   RedcapNameCollision,
   ScannerEventRow,
@@ -26,6 +27,7 @@ import type {
 } from "../types";
 import {
   MISMATCH_RULE_EXPLANATIONS,
+  NO_SHOW_PRODEV_RULE_EXPLANATIONS,
   PRODEV_RULE_EXPLANATIONS,
   VIOLATION_RULE_EXPLANATIONS,
   renderRuleExplanations,
@@ -132,6 +134,16 @@ export function renderAuditPage(app: HTMLElement): void {
         </div>
         <div class="table-wrap" id="late-cancellations-table"></div>
         <p class="table-note">Each protocol is allowed ${LATE_CANCELLATION_ALLOWANCE} late cancellation events ("${NO_SHOW_SERVICE}") per calendar month, the month taken from Scan Time. Once a protocol goes past that in a month, every later cancellation event that month is listed here — one row per event, with its Event ID. Events are ordered by Scan Time then Event ID, so the first ${LATE_CANCELLATION_ALLOWANCE} in the month are the ones treated as within allowance. Protocols are grouped by their exact Dogfish Protocol Number (no normalization).</p>
+      </div>
+
+      <div class="results-section">
+        <div class="results-section-header">
+          <h2>No-Shows Billed To Prodev Protocols <span class="count" id="no-show-prodev-count"></span></h2>
+          <button class="secondary" id="export-no-show-prodev">Export CSV</button>
+        </div>
+        <div class="table-wrap" id="no-show-prodev-table"></div>
+        <p class="table-note">Every "${NO_SHOW_SERVICE}" event on a Prodev protocol — one row per event, with its Event ID. A protocol counts as Prodev when its number ends with "-P", "_P", or "Prodev", or when another event in this upload billed that exact protocol number at a Prodev tier. Protocols are matched by their exact Dogfish Protocol Number (no normalization).</p>
+        ${renderRuleExplanations(NO_SHOW_PRODEV_RULE_EXPLANATIONS)}
       </div>
 
       <div class="results-section">
@@ -389,12 +401,24 @@ export function renderAuditPage(app: HTMLElement): void {
     { header: "Cancellations In Month", get: (r) => String(r.cancellationsInMonth) },
   ];
 
+  const noShowProdevColumns: Column<NoShowOnProdevRow>[] = [
+    { header: "Event ID", get: (r) => r.eventId },
+    { header: "Protocol Number", get: (r) => r.protocolNumber },
+    { header: "Project Title", get: (r) => r.projectTitle, wrap: true },
+    { header: "Scan Time", get: (r) => r.scanTime },
+    { header: "Scanner", get: (r) => r.scanner },
+    { header: "Prodev Suffix", get: (r) => r.prodevSuffix },
+    { header: "Prodev Billed On Protocol", get: (r) => r.prodevBilledOnProtocol },
+    { header: "Prodev Services Billed", get: (r) => r.prodevServicesBilled },
+  ];
+
   let lastResult: AuditResult = {
     violations: [],
     dedupedViolations: [],
     mismatches: [],
     dedupedMismatches: [],
     excessLateCancellations: [],
+    noShowsOnProdevProtocols: [],
     scannerEvents: [],
     humanMriExternalEvents: [],
     prodevConsistencyIssues: [],
@@ -415,6 +439,7 @@ export function renderAuditPage(app: HTMLElement): void {
         dedupedViolations,
         dedupedMismatches,
         excessLateCancellations,
+        noShowsOnProdevProtocols,
         scannerEvents,
         humanMriExternalEvents,
         prodevConsistencyIssues,
@@ -425,6 +450,7 @@ export function renderAuditPage(app: HTMLElement): void {
       setCount("deduped-violation-count", dedupedViolations.length);
       setCount("mismatch-count", dedupedMismatches.length);
       setCount("late-cancellation-count", excessLateCancellations.length);
+      setCount("no-show-prodev-count", noShowsOnProdevProtocols.length);
       setCount("scanner-event-count", scannerEvents.length);
       setCount("human-mri-external-count", humanMriExternalEvents.length);
       setCount("prodev-consistency-count", prodevConsistencyIssues.length);
@@ -453,6 +479,12 @@ export function renderAuditPage(app: HTMLElement): void {
         lateCancellationColumns,
         excessLateCancellations,
         `No protocol exceeded ${LATE_CANCELLATION_ALLOWANCE} late cancellations in a month.`
+      );
+      renderTable(
+        "no-show-prodev-table",
+        noShowProdevColumns,
+        noShowsOnProdevProtocols,
+        "No no-show events found on a Prodev protocol."
       );
       renderTable(
         "scanner-events-table",
@@ -515,6 +547,15 @@ export function renderAuditPage(app: HTMLElement): void {
       downloadCsv(
         "excess_late_cancellations.csv",
         toCsv(lateCancellationColumns, lastResult.excessLateCancellations)
+      );
+    });
+
+  document
+    .getElementById("export-no-show-prodev")!
+    .addEventListener("click", () => {
+      downloadCsv(
+        "no_shows_on_prodev_protocols.csv",
+        toCsv(noShowProdevColumns, lastResult.noShowsOnProdevProtocols)
       );
     });
 
