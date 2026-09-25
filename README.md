@@ -149,14 +149,15 @@ folder instead, e.g. `python3 -m http.server 8080 --directory dist`.
 ## Contributing
 
 Every change reaches `main` through a reviewed pull request (see `CLAUDE.md`
-for the full workflow). CI (`.github/workflows/ci.yml`) runs `npm run build`
-and both test suites on each PR.
+for the full workflow, which follows the
+[dev-workflow](https://github.com/mdtisdall/claude-dev-workflow) Claude Code
+plugin). CI (`.github/workflows/ci.yml`) runs `scripts/check` on each PR.
 
 ### Development environment (Nix)
 
 The repo ships a Nix flake devShell that pins the tools this project needs
-outside of npm: `gh` (for PRs), Node 20 (matching CI), and the 1Password
-CLI. With [Nix](https://nixos.org/download) (flakes enabled) and
+outside of npm: `gh` (for PRs) and Node 20 (matching CI). With
+[Nix](https://nixos.org/download) (flakes enabled) and
 [direnv](https://direnv.net) installed:
 
 ```bash
@@ -165,29 +166,23 @@ nix develop      # or this, if you don't use direnv
 ```
 
 `npm install` / `npm run …` then behave as in [Running it](#running-it), on
-the pinned Node.
+the pinned Node. All the checks that CI runs are one command:
+
+```bash
+nix develop --command scripts/check
+```
 
 ### `gh` authentication
 
 `gh` uses a fine-grained GitHub PAT **scoped to this repository only**, with
-just the permissions the CLI needs here (Pull requests: read/write;
-Contents, Metadata, Actions: read). It lives in 1Password and is injected
-into `GH_TOKEN` by `.envrc` at shell entry — never written to disk or the
-login keychain, and isolated from tokens used by other projects. Git itself
-uses SSH for this repo, so `git` push/pull do not need the token.
+the permissions listed in `.claude/gh-token-permissions`. It is stored as
+`export GH_TOKEN=...` in the git-ignored `.envrc.local` (mode 600), which
+`.envrc` loads; worktrees link to the main checkout's copy. Run `gh` as
+`direnv exec . gh ...` so it picks up that token. Git itself uses SSH for
+this repo, so `git` push/pull do not need the token.
 
-One-time setup:
-
-1. Create the token at GitHub → Settings → Developer settings → Personal
-   access tokens → Fine-grained tokens. Resource owner **UPenn-CAMRIS**,
-   repository access **only `camris-tools`**, permissions as above; get it
-   approved by an org owner if prompted.
-2. In the 1Password desktop app, enable Settings → Developer → **Integrate
-   with 1Password CLI**.
-3. Store the token in a 1Password item, then point `.envrc` at it: either
-   name the item so its reference is
-   `op://Private/camris-tools GitHub PAT/credential`, or set `OP_GH_TOKEN_REF`
-   in a git-ignored `.envrc.local`.
+To create, store, and validate the token, use the dev-workflow plugin's
+`github-token` skill.
 
 ## Project structure
 
