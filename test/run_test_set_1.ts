@@ -30,6 +30,7 @@ const {
   dedupedViolations,
   dedupedMismatches,
   excessLateCancellations,
+  noShowsOnProdevProtocols,
   scannerEvents,
   humanMriExternalEvents,
   prodevConsistencyIssues,
@@ -72,6 +73,9 @@ console.log(
     `(over 2 per protocol per month)`
 );
 console.table(excessLateCancellations);
+
+console.log(`\n${noShowsOnProdevProtocols.length} no-show events on Prodev protocols`);
+console.table(noShowsOnProdevProtocols);
 
 console.log(`\n${scannerEvents.length} SC7T scanner events (incl. no-shows)`);
 console.table(scannerEvents.slice(0, 20));

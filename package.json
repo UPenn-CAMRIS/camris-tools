@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "test": "tsx test/run_test_set_1.ts && tsx test/run_contrast_test_set_1.ts && tsx test/run_audit_industry_suffix_checks.ts && tsx test/run_audit_late_cancellation_checks.ts"
+    "test": "tsx test/run_test_set_1.ts && tsx test/run_contrast_test_set_1.ts && tsx test/run_audit_industry_suffix_checks.ts && tsx test/run_audit_late_cancellation_checks.ts && tsx test/run_audit_no_show_prodev_checks.ts"
   },
   "dependencies": {
     "exceljs": "^4.4.0",

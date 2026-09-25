@@ -102,6 +102,19 @@ export const PRODEV_RULE_EXPLANATIONS: RuleExplanation[] = [
   },
 ];
 
+export const NO_SHOW_PRODEV_RULE_EXPLANATIONS: RuleExplanation[] = [
+  {
+    label: "Prodev Suffix",
+    description:
+      'The protocol number ends with "-P", "_P", or "Prodev" — the naming that usually marks a Prodev protocol — so the no-show is billed to a Prodev protocol.',
+  },
+  {
+    label: "Prodev Billed On Protocol",
+    description:
+      'Another Dogfish event in this upload billed the same protocol number at Human MRI (Prodev Tier 1) or (Prodev Tier 2), so the protocol is treated as Prodev even if its number lacks the usual ending. Prodev Services Billed lists which tiers. The protocol number must match exactly: a Prodev scan on "123456-P" does not mark a no-show on "123456".',
+  },
+];
+
 export function renderRuleExplanations(items: RuleExplanation[]): string {
   return `
     <details class="detail-box rule-explainer">
