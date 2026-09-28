@@ -233,19 +233,36 @@ export function rowContext(
   };
 }
 
+/** The line ending the file uses between rows, taken from its header
+ * line. PapaParse picks one line ending for the whole file the same way,
+ * so every row must use it. */
+function fileLineEnding(rawText: string): "\r\n" | "\n" {
+  const headerEnd = headerLineEnd(rawText);
+  return rawText[headerEnd - 2] === "\r" ? "\r\n" : "\n";
+}
+
 /** Replaces the raw text of the row at `rowIndex` with `correctedText`,
  * then re-parses the whole file. Use this after a user edits a malformed
  * row, since a single row's raw text can run past one physical line —
- * fixing it can only be verified by re-parsing everything after it. */
+ * fixing it can only be verified by re-parsing everything after it.
+ *
+ * A browser textarea turns every line break into "\n", so the edited
+ * text's line breaks are converted back to the file's own line ending
+ * first. Without this, a "\n" in a "\r\n" file is not a row break to
+ * PapaParse, and every row after the correction merges into one field.
+ * A line break inside a quoted field gets the file's line ending too;
+ * the textarea has already lost what it was. */
 export function applyRowCorrection(
   parsed: ParsedCsv,
   rowIndex: number,
   correctedText: string
 ): ParsedCsv {
   const span = parsed.rowSpans[rowIndex];
-  const withNewline = correctedText.endsWith("\n")
-    ? correctedText
-    : correctedText + "\n";
+  const lineEnding = fileLineEnding(parsed.rawText);
+  const normalized = correctedText.replace(/\r\n|\r|\n/g, lineEnding);
+  const withNewline = normalized.endsWith(lineEnding)
+    ? normalized
+    : normalized + lineEnding;
   const rebuilt =
     parsed.rawText.slice(0, span.start) +
     withNewline +
