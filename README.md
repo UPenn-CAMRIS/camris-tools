@@ -31,8 +31,12 @@ Upload three CSV exports for the same period:
 
 If a file has malformed rows (e.g. an unescaped quote inside a field), parsing
 still continues on a best-effort basis, and an expandable box appears under
-that file's upload row listing which rows were affected, why, and their
-(non-empty) parsed values — so you can decide whether to fix the source file.
+that file's upload row listing which rows were affected and why. Each row can
+be edited in place and the file re-parsed with the correction. Once a
+correction changes the file, a **Download** button saves a corrected copy as
+`<name>-corrected.csv`: the uploaded file with only the edited rows changed,
+keeping its byte-order mark and line endings. The file on disk is never
+changed. (This applies to every CSV upload in both tools.)
 
 The tool matches events to their protocol's CAMS and REDCap records (by a
 normalized protocol number) and flags:

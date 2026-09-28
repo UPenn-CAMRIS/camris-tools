@@ -1,9 +1,15 @@
 import { strict as assert } from "node:assert";
-import { parseCsv, applyRowCorrection } from "../src/parseCsv";
+import {
+  parseCsv,
+  applyRowCorrection,
+  correctedFileText,
+  correctedFilename,
+  readCsvFile,
+} from "../src/parseCsv";
 
 /**
  * Focused checks for applyRowCorrection: replacing one malformed row's
- * raw text and re-parsing the file. The edited text comes from a browser
+ * raw text and re-parsing the file, then saving the corrected copy. The edited text comes from a browser
  * textarea, which turns every line break into "\n", so these checks pass
  * "\n"-only text the same way the UI does. Run from `npm test`; it throws
  * on the first failed assertion.
@@ -69,6 +75,64 @@ function correctOnlyWarning(text: string, edit: string) {
   );
   assert.deepEqual(out.warnings, []);
   assert.equal(out.rows.length, 2);
+}
+
+// The corrected copy is the uploaded file with only the edited row
+// changed: the byte-order mark, the "\r\n" line endings, and the quoting
+// of every other row are kept.
+{
+  const original = '﻿"a",b\r\n1,"x"y"\r\n"2", z \r\n';
+  const out = correctOnlyWarning(original, '1,"x""y"\n');
+  assert.equal(out.hasBom, true);
+  assert.equal(
+    correctedFileText(out),
+    '﻿"a",b\r\n1,"x""y"\r\n"2", z \r\n'
+  );
+}
+
+// A file with no byte-order mark does not get one.
+{
+  const out = correctOnlyWarning('a,b\n1,"x"y"\n', '1,"x""y"\n');
+  assert.equal(out.hasBom, false);
+  assert.equal(correctedFileText(out), 'a,b\n1,"x""y"\n');
+}
+
+// A file as loaded has no corrections; each correction that changes the
+// text adds one.
+{
+  const parsed = parseCsv('a,b\n1,"x"y"\n2,"z"w"\n');
+  assert.equal(parsed.correctionCount, 0);
+  assert.equal(parsed.warnings.length, 2);
+  const once = applyRowCorrection(parsed, 0, '1,"x""y"\n');
+  assert.equal(once.correctionCount, 1);
+  assert.equal(once.warnings.length, 1);
+  const twice = applyRowCorrection(once, 1, '2,"z""w"\n');
+  assert.equal(twice.correctionCount, 2);
+  assert.deepEqual(twice.warnings, []);
+}
+
+// A "correction" that leaves the text the same is not counted.
+{
+  const parsed = parseCsv('a,b\r\n1,"x"y"\r\n2,z\r\n');
+  const unchanged = applyRowCorrection(parsed, 0, '1,"x"y"\n');
+  assert.equal(unchanged, parsed);
+  assert.equal(unchanged.correctionCount, 0);
+}
+
+// The download name adds "-corrected" before the extension.
+assert.equal(correctedFilename("CAMS_Data.csv"), "CAMS_Data-corrected.csv");
+assert.equal(correctedFilename("Dogfish Events.CSV"), "Dogfish Events-corrected.csv");
+assert.equal(correctedFilename("export"), "export-corrected.csv");
+
+// Reading an uploaded file keeps its byte-order mark, which Blob.text()
+// would drop, so a corrected copy can put it back.
+{
+  const bytes = new Uint8Array([0xef, 0xbb, 0xbf, ...new TextEncoder().encode("a,b\n1,2\n")]);
+  const withBom = parseCsv(await readCsvFile(new Blob([bytes])));
+  assert.equal(withBom.hasBom, true);
+  assert.equal(correctedFileText(withBom), "﻿a,b\n1,2\n");
+  const withoutBom = parseCsv(await readCsvFile(new Blob(["a,b\n1,2\n"])));
+  assert.equal(withoutBom.hasBom, false);
 }
 
 console.log("parse CSV row-correction checks: all assertions passed");

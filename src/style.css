@@ -355,6 +355,18 @@ td.bool-true {
   margin-bottom: 0.5rem;
 }
 
+.csv-corrected {
+  border-color: var(--ok);
+}
+
+.csv-corrected-message {
+  margin: 0;
+}
+
+.csv-corrected .secondary {
+  margin-top: 0.5rem;
+}
+
 .sanity-blocking {
   background: #fdecea;
   border-color: var(--danger);

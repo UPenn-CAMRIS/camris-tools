@@ -1,4 +1,4 @@
-import { parseCsv, type ParsedCsv } from "../parseCsv";
+import { parseCsv, readCsvFile, type ParsedCsv } from "../parseCsv";
 import {
   runAudit,
   buildRedcapLookup,
@@ -242,7 +242,7 @@ export function renderAuditPage(app: HTMLElement): void {
     const csvWarningsContainer = document.getElementById(`warnings-${key}`)!;
     csvWarningsContainer.innerHTML = "";
     if (!hasBlockingIssues(sanityResult)) {
-      renderCsvWarnings(key, parsed, (corrected) => {
+      renderCsvWarnings(key, { parsed, filename }, (corrected) => {
         loadedFiles.set(key, corrected);
         refreshFileDisplay(key);
         updateRunButtonState();
@@ -281,7 +281,7 @@ export function renderAuditPage(app: HTMLElement): void {
       if (slot.key === "redcap") renderRedcapCollisions([]);
 
       try {
-        const text = await file.text();
+        const text = await readCsvFile(file);
         const parsed = parseCsv(text);
         loadedFiles.set(slot.key, parsed);
         loadedFilenames.set(slot.key, file.name);
