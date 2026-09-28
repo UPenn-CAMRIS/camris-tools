@@ -1,4 +1,4 @@
-import { parseCsv, type ParsedCsv } from "../parseCsv";
+import { parseCsv, readCsvFile, type ParsedCsv } from "../parseCsv";
 import { parseXlsxFile } from "../parseXlsx";
 import {
   runContrast,
@@ -167,7 +167,7 @@ export function renderContrastPage(app: HTMLElement): void {
     const csvWarningsContainer = document.getElementById(`warnings-${key}`)!;
     csvWarningsContainer.innerHTML = "";
     if (!hasBlockingIssues(sanityResult) && isCsv) {
-      renderCsvWarnings(key, parsedCsv, (corrected) => {
+      renderCsvWarnings(key, { parsed: parsedCsv!, filename }, (corrected) => {
         loadedData.set(key, corrected);
         if (key === "contrastReport") contrastReportParsedCsv = corrected;
         refreshFileDisplay(key);
@@ -201,7 +201,7 @@ export function renderContrastPage(app: HTMLElement): void {
           const sheet = await parseXlsxFile(file);
           loadedData.set(slot.key, sheet);
         } else {
-          const text = await file.text();
+          const text = await readCsvFile(file);
           const parsed = parseCsv(text);
           loadedData.set(slot.key, parsed);
           if (slot.key === "contrastReport") contrastReportParsedCsv = parsed;

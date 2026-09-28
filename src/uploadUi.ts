@@ -1,5 +1,7 @@
 import {
   applyRowCorrection,
+  correctedFileText,
+  correctedFilename,
   rowContext,
   diagnoseWarning,
   type CsvWarning,
@@ -12,6 +14,7 @@ import {
   type FileSchema,
   type TabularData,
 } from "./sanityChecks";
+import { downloadCsv } from "./csvExport";
 
 export function setStatus(
   key: string,
@@ -127,22 +130,32 @@ function buildSanityWarningsBox(
   return details;
 }
 
-/** Renders the malformed-row detail box for `key` from `parsed`, and
- * wires up its correction editors. `onCorrected` is called with the
+/** Renders the malformed-row detail box for `key` from `source.parsed`,
+ * and wires up its correction editors. `onCorrected` is called with the
  * re-parsed file after a user applies a correction — the caller is
- * responsible for storing it and refreshing its own display. Renders
- * nothing when `parsed` is undefined or has no warnings — this is only
- * meaningful for a file that went through `parseCsv`, since only CSV
- * parsing can lose track of a malformed row this way. */
+ * responsible for storing it and refreshing its own display. Once a
+ * correction has changed the file, it also renders a box to download
+ * the corrected copy, and keeps it after the last warning is fixed.
+ * Renders nothing when `source` is undefined, or when the file has no
+ * warnings and no corrections — this is only meaningful for a file that
+ * went through `parseCsv`, since only CSV parsing can lose track of a
+ * malformed row this way. */
 export function renderCsvWarnings(
   key: string,
-  parsed: ParsedCsv | undefined,
+  source: { parsed: ParsedCsv; filename: string } | undefined,
   onCorrected: (corrected: ParsedCsv) => void
 ): void {
   const container = document.getElementById(`warnings-${key}`)!;
   container.innerHTML = "";
 
-  if (!parsed || parsed.warnings.length === 0) return;
+  if (!source) return;
+  const { parsed, filename } = source;
+
+  if (parsed.correctionCount > 0) {
+    container.appendChild(buildCorrectedDownloadBox(parsed, filename));
+  }
+
+  if (parsed.warnings.length === 0) return;
 
   const details = document.createElement("details");
   details.className = "detail-box csv-warnings";
@@ -166,6 +179,41 @@ export function renderCsvWarnings(
   for (const textarea of container.querySelectorAll(".csv-warning-editor")) {
     autoGrowTextarea(textarea as HTMLTextAreaElement);
   }
+}
+
+/** Builds the box that offers the corrected copy of the file for
+ * download. The download name is the uploaded name with "-corrected"
+ * added, so it cannot silently replace the original in a download
+ * folder. */
+function buildCorrectedDownloadBox(
+  parsed: ParsedCsv,
+  filename: string
+): HTMLElement {
+  const box = document.createElement("div");
+  box.className = "detail-box csv-corrected";
+
+  const count = parsed.correctionCount;
+  const remaining = parsed.warnings.length;
+  const message = document.createElement("p");
+  message.className = "csv-corrected-message";
+  message.textContent =
+    `${count} correction${count === 1 ? "" : "s"} applied to this file in the browser. ` +
+    "The file on your computer has not changed." +
+    (remaining > 0
+      ? ` ${remaining} row${remaining === 1 ? " still has" : "s still have"} formatting issues.`
+      : "");
+  box.appendChild(message);
+
+  const downloadName = correctedFilename(filename);
+  const button = document.createElement("button");
+  button.className = "secondary";
+  button.textContent = `Download ${downloadName}`;
+  button.addEventListener("click", () => {
+    downloadCsv(downloadName, correctedFileText(parsed));
+  });
+  box.appendChild(button);
+
+  return box;
 }
 
 /** Builds one malformed-row entry: a specific guess at what went wrong,

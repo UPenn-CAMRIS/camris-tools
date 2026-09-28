@@ -63,6 +63,12 @@ export interface ParsedCsv {
   rowSpans: RowSpan[];
   /** Column names from the header row. */
   fields: string[];
+  /** True when the file started with a byte-order mark. `rawText` has it
+   * stripped; `correctedFileText` puts it back. */
+  hasBom: boolean;
+  /** How many row corrections have changed this file's text since it was
+   * loaded. 0 for a file as loaded. */
+  correctionCount: number;
 }
 
 function headerLineEnd(text: string): number {
@@ -84,8 +90,17 @@ function readHeaderFields(rawText: string, headerEnd: number): string[] {
   return result.data[0] ?? [];
 }
 
+/** Reads an uploaded file as UTF-8 text for `parseCsv`, keeping a
+ * leading byte-order mark. `Blob.text()` silently drops the mark, and
+ * `parseCsv` needs to see it to put it back in a corrected copy. */
+export async function readCsvFile(file: Blob): Promise<string> {
+  const bytes = await file.arrayBuffer();
+  return new TextDecoder("utf-8", { ignoreBOM: true }).decode(bytes);
+}
+
 export function parseCsv(text: string): ParsedCsv {
-  const rawText = text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
+  const hasBom = text.charCodeAt(0) === 0xfeff;
+  const rawText = hasBom ? text.slice(1) : text;
 
   const rows: CsvRow[] = [];
   const warnings: CsvWarning[] = [];
@@ -116,7 +131,15 @@ export function parseCsv(text: string): ParsedCsv {
     },
   });
 
-  return { rows, warnings, rawText, rowSpans, fields };
+  return {
+    rows,
+    warnings,
+    rawText,
+    rowSpans,
+    fields,
+    hasBom,
+    correctionCount: 0,
+  };
 }
 
 /** A specific, best-effort guess at what's wrong with a malformed row,
@@ -251,7 +274,10 @@ function fileLineEnding(rawText: string): "\r\n" | "\n" {
  * first. Without this, a "\n" in a "\r\n" file is not a row break to
  * PapaParse, and every row after the correction merges into one field.
  * A line break inside a quoted field gets the file's line ending too;
- * the textarea has already lost what it was. */
+ * the textarea has already lost what it was.
+ *
+ * Returns `parsed` itself when the edit leaves the file's text the same,
+ * so an unedited "correction" does not count as one. */
 export function applyRowCorrection(
   parsed: ParsedCsv,
   rowIndex: number,
@@ -267,5 +293,25 @@ export function applyRowCorrection(
     parsed.rawText.slice(0, span.start) +
     withNewline +
     parsed.rawText.slice(span.end);
-  return parseCsv(rebuilt);
+  if (rebuilt === parsed.rawText) return parsed;
+  return {
+    ...parseCsv(rebuilt),
+    hasBom: parsed.hasBom,
+    correctionCount: parsed.correctionCount + 1,
+  };
+}
+
+/** The full text of the file with every applied row correction in it,
+ * for saving a corrected copy. Every row the user did not edit is
+ * byte-for-byte the same as in the uploaded file, and the byte-order
+ * mark, if the file had one, is put back. */
+export function correctedFileText(parsed: ParsedCsv): string {
+  return (parsed.hasBom ? "\ufeff" : "") + parsed.rawText;
+}
+
+/** The download name for a corrected copy of `filename`: "-corrected"
+ * before the ".csv" extension, for example "CAMS_Data-corrected.csv". */
+export function correctedFilename(filename: string): string {
+  const base = filename.replace(/\.csv$/i, "");
+  return `${base}-corrected.csv`;
 }
