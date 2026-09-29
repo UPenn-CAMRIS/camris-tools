@@ -44,7 +44,10 @@ normalized protocol number) and flags:
 - Industry-sponsored protocols billed at the government rate, and vice versa
 - Animal protocols billed under a human MRI service code, and vice versa
 - Stimulus/Response Equipment or Neuroreader (Research Report Reader) fees that
-  were billed but not approved, or approved but never billed
+  were billed but not approved, or approved but never billed. An approved
+  Neuroreader fee that was never billed is not flagged on the SC3T or SC7T
+  scanner (Stellar Chance), because scans there should not have Neuroreader
+  services.
 - A Stimulus/Response Equipment or Neuroreader fee billed at the standard rate
   on an industry-sponsored protocol, or at the "(Industry/CHOP)" rate on one
   that isn't — the same rate-vs-sponsorship check applied to Human MRI,
