@@ -47,7 +47,7 @@ export const VIOLATION_RULE_EXPLANATIONS: RuleExplanation[] = [
   {
     label: "Neuroreader Billing Missed",
     description:
-      "The protocol's approved REDCap review letter includes the Research Report Reader (Neuroreader) fee, but no such charge was found in Dogfish — a fee that should have been billed may have been missed.",
+      "The protocol's approved REDCap review letter includes the Research Report Reader (Neuroreader) fee, but no such charge was found in Dogfish — a fee that should have been billed may have been missed. Events on the SC3T or SC7T scanner (Stellar Chance) are never flagged here, because scans there should not have Neuroreader services.",
   },
   {
     label: "Neuroreader Billing Extra",

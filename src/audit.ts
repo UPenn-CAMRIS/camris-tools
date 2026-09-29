@@ -621,6 +621,11 @@ function computeFlags(
   const stimulusBilled = flags.stimulus || flags.stimulusIndustry;
   const readerBilled = flags.neuroreader || flags.neuroreaderIndustry;
 
+  // Scans on the Stellar Chance scanners should not have Neuroreader
+  // services, so a missing Neuroreader charge there is expected and not
+  // flagged as missed billing.
+  const atStellarChance = STELLAR_CHANCE_SCANNERS.has(event.scanner);
+
   return {
     industryBilledAsGovernment: cams
       ? !billedIndustry && camsIndustry
@@ -659,7 +664,7 @@ function computeFlags(
       ? flags.stimulusIndustry && !camsIndustry
       : undefined,
     neuroreaderBillingMissed: redcap
-      ? !readerBilled && redcap.neuroreader
+      ? !readerBilled && redcap.neuroreader && !atStellarChance
       : undefined,
     neuroreaderBillingExtra: redcap
       ? readerBilled && !redcap.neuroreader
