@@ -343,6 +343,7 @@ export function renderAuditPage(app: HTMLElement): void {
     { header: "Project Title", get: (r) => r.projectTitle, wrap: true },
     { header: "No CAMS Match", get: (r) => r.noCamsMatch },
     { header: "No Active REDCap Match", get: (r) => r.noActiveRedcapMatch },
+    { header: "No REDCap Funding Type", get: (r) => r.noRedcapFundingType },
     { header: "Invalid Protocol Format", get: (r) => r.invalidProtocolFormat },
   ];
 

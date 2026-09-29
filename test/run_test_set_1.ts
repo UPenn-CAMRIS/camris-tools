@@ -57,13 +57,14 @@ console.log(
 );
 console.table(protocolIssues.slice(0, 20));
 
+// Counted from the error rows, so a rate check counts once for each
+// disagreeing source it names.
 const violationCounts: Record<string, number> = {};
-for (const v of violations) {
-  for (const [key, value] of Object.entries(v)) {
-    if (value === true) violationCounts[key] = (violationCounts[key] ?? 0) + 1;
-  }
+for (const { issue, source } of violationIssues) {
+  const key = `${issue} [${source}]`;
+  violationCounts[key] = (violationCounts[key] ?? 0) + 1;
 }
-console.log("Violation counts by type:", violationCounts);
+console.log("Violation counts by issue and source:", violationCounts);
 
 console.log(`\n${dedupedMismatches.length} deduped mismatch rows (per protocol)`);
 console.table(dedupedMismatches);
@@ -71,6 +72,8 @@ console.table(dedupedMismatches);
 const mismatchCounts = {
   noCamsMatch: dedupedMismatches.filter((m) => m.noCamsMatch).length,
   noActiveRedcapMatch: dedupedMismatches.filter((m) => m.noActiveRedcapMatch)
+    .length,
+  noRedcapFundingType: dedupedMismatches.filter((m) => m.noRedcapFundingType)
     .length,
   invalidProtocolFormat: dedupedMismatches.filter(
     (m) => m.invalidProtocolFormat

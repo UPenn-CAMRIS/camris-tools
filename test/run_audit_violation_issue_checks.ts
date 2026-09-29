@@ -51,22 +51,25 @@ function redcapRow(
 
 const NO_FEES = { stimulus: false, neuroreader: false };
 
-// The issue definitions, in order, with their sources.
+// The issue definitions, in order, with their fixed sources. The rate
+// checks have none: their source comes from each event (see
+// run_audit_cams_redcap_checks.ts).
 assert.deepEqual(
   VIOLATION_ISSUES.map(({ flag, issue, source }) => [flag, issue, source]),
   [
-    ["industryBilledAsGovernment", "Industry billed as government (MRI)", "CAMS"],
-    ["governmentBilledAsIndustry", "Government billed as industry (MRI)", "CAMS"],
+    ["industryBilledAsGovernment", "Industry billed as government (MRI)", undefined],
+    ["governmentBilledAsIndustry", "Government billed as industry (MRI)", undefined],
+    ["chopBilledAsStandard", "CHOP study billed at standard MRI rate", "REDCap"],
     ["animalBilledAsHuman", "Animal billed as human", "Protocol format"],
     ["humanBilledAsAnimal", "Human billed as animal", "Protocol format"],
     ["stimulusBillingMissed", "Stimulus billing missed", "REDCap letter"],
     ["stimulusBillingExtra", "Stimulus billing extra", "REDCap letter"],
-    ["stimulusBilledAsGovernment", "Stimulus billed as government", "CAMS"],
-    ["stimulusBilledAsIndustry", "Stimulus billed as industry", "CAMS"],
+    ["stimulusBilledAsGovernment", "Stimulus billed as government", undefined],
+    ["stimulusBilledAsIndustry", "Stimulus billed as industry", undefined],
     ["neuroreaderBillingMissed", "Neuroreader billing missed", "REDCap letter"],
     ["neuroreaderBillingExtra", "Neuroreader billing extra", "REDCap letter"],
-    ["neuroreaderBilledAsGovernment", "Neuroreader billed as government", "CAMS"],
-    ["neuroreaderBilledAsIndustry", "Neuroreader billed as industry", "CAMS"],
+    ["neuroreaderBilledAsGovernment", "Neuroreader billed as government", undefined],
+    ["neuroreaderBilledAsIndustry", "Neuroreader billed as industry", undefined],
     ["neuroreaderAtStellarChance", "Neuroreader billed at Stellar Chance", "Scanner"],
   ]
 );
@@ -201,9 +204,10 @@ assert.deepEqual(
   ]);
 }
 
-// Every ViolationRow boolean flag has an issue definition, so no flag
-// can drop out of the tables. The compiler checks this too (the Record
-// in audit.ts); this catches it at run time from a real row.
+// Every ViolationRow check field — every field except the four event
+// fields — has an issue definition, so no check can drop out of the
+// tables. The compiler checks this too (the mapped type in audit.ts);
+// this catches it at run time from a real row.
 {
   const result = runAudit(
     [dogfishRow({ "Event ID": "F1", "Protocol Number": "500005" })],
@@ -211,12 +215,12 @@ assert.deepEqual(
     [redcapRow("500005", NO_FEES)]
   );
   assert.equal(result.violations.length, 1);
-  const booleanFields = Object.entries(result.violations[0])
-    .filter(([, value]) => typeof value === "boolean")
-    .map(([key]) => key)
+  const eventFields = new Set(["eventId", "protocolNumber", "scanTime", "scanner"]);
+  const checkFields = Object.keys(result.violations[0])
+    .filter((key) => !eventFields.has(key))
     .sort();
   assert.deepEqual(
-    booleanFields,
+    checkFields,
     VIOLATION_ISSUES.map((definition) => definition.flag).sort()
   );
 }

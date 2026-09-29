@@ -93,6 +93,8 @@ const REDCAP_SCHEMA: FileSchema = {
     "camris_review_letter_complete",
     "fees_reviewletter___2",
     "fees_reviewletter___6",
+    "funding_type",
+    "pi_school",
   ],
   codedColumns: [
     {
@@ -101,6 +103,17 @@ const REDCAP_SCHEMA: FileSchema = {
     },
     { column: "fees_reviewletter___2", knownValues: new Set(["0", "1", ""]) },
     { column: "fees_reviewletter___6", knownValues: new Set(["0", "1", ""]) },
+    // The audit reads codes 1 and 4 as industry funding, and every other
+    // code as not industry (see REDCAP_INDUSTRY_FUNDING_TYPES in audit.ts).
+    {
+      column: "funding_type",
+      knownValues: new Set(["1", "2", "3", "4", "5", "6", "7", ""]),
+    },
+    // The audit reads code 4 as CHOP (see REDCAP_CHOP_PI_SCHOOL).
+    {
+      column: "pi_school",
+      knownValues: new Set(["1", "2", "3", "4", "5", ""]),
+    },
   ],
 };
 
