@@ -2,7 +2,7 @@
   description = "camris-tools dev environment";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-24.11-darwin";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-26.05-darwin";
     flake-utils.url = "github:numtide/flake-utils";
   };
 
@@ -14,7 +14,7 @@
       {
         devShells.default = pkgs.mkShell {
           packages = [
-            pkgs.nodejs_20      # match CI (ci.yml / deploy.yml use Node 20)
+            pkgs.nodejs_22      # match CI (ci.yml / deploy.yml use Node 22)
             pkgs.gh
           ];
         };
