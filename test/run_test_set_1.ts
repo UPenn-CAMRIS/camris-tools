@@ -80,7 +80,7 @@ console.table(noShowsOnProdevProtocols);
 console.log(`\n${scannerEvents.length} SC7T scanner events (incl. no-shows)`);
 console.table(scannerEvents.slice(0, 20));
 
-console.log(`\n${humanMriExternalEvents.length} Human MRI (External) events`);
+console.log(`\n${humanMriExternalEvents.length} Human MRI (Industry/External) events`);
 console.table(humanMriExternalEvents);
 
 console.log(`\n${prodevConsistencyIssues.length} Prodev naming consistency issues`);

@@ -105,7 +105,7 @@ export interface ScannerEventRow {
  * and no-shows are excluded. These fees should ride along with a scan.
  * A fee with no scan is a data-quality flag, separate from the CAMS and
  * REDCap checks. Either rate of a fee — the standard service or its
- * "(Industry/CHOP)" variant — sets that fee's column to true here. */
+ * industry variant — sets that fee's column to true here. */
 export interface AddOnWithoutMriRow {
   eventId: string;
   protocolNumber: string;
@@ -113,8 +113,10 @@ export interface AddOnWithoutMriRow {
   neuroreader: boolean;
 }
 
-/** One row per raw Dogfish CSV row billed as Human MRI (External). Like
- * ScannerEventRow, this is not grouped or deduped, and includes no-shows.
+/** One row per raw Dogfish CSV row billed at the external MRI rate, under
+ * its current label "Human MRI (industry/external)" or its old label
+ * "Human MRI (external)". Like ScannerEventRow, this is not grouped or
+ * deduped, and includes no-shows.
  * Unlike ScannerEventRow, it is not limited to one scanner, so it carries
  * its own Scanner column. */
 export interface HumanMriExternalEventRow {

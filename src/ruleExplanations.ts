@@ -1,3 +1,5 @@
+import { INDUSTRY_FEE_RATE_START } from "./audit";
+
 export interface RuleExplanation {
   label: string;
   description: string;
@@ -7,7 +9,7 @@ export const VIOLATION_RULE_EXPLANATIONS: RuleExplanation[] = [
   {
     label: "Industry Billed As Government",
     description:
-      "A Dogfish event for the protocol was billed at a non-industry MRI rate, but CAMS marks the protocol as industry-sponsored — industry-funded work may have been billed at the cheaper government/academic rate.",
+      "A Dogfish event for the protocol was billed at a non-industry MRI rate, but CAMS marks the protocol as industry-sponsored — industry-funded work may have been billed at the cheaper government/academic rate. An event billed at the external rate, Human MRI (industry/external), is never flagged here: that rate serves external users whether or not they are industry, and every external event is listed on the Human MRI (Industry/External) Events table for review.",
   },
   {
     label: "Government Billed As Industry",
@@ -37,12 +39,12 @@ export const VIOLATION_RULE_EXPLANATIONS: RuleExplanation[] = [
   {
     label: "Stimulus Billed As Government",
     description:
-      'Dogfish billed the standard Stimulus/Response Equipment fee, but CAMS marks the protocol as industry-sponsored — the fee should have carried the "(Industry/CHOP)" rate.',
+      `Dogfish billed the standard Stimulus/Response Equipment fee, but CAMS marks the protocol as industry-sponsored — the fee should have carried the "(Ind)" industry rate. Only scans on or after ${INDUSTRY_FEE_RATE_START} are checked, because the industry rate did not exist before then.`,
   },
   {
     label: "Stimulus Billed As Industry",
     description:
-      'Dogfish billed the Stimulus/Response Equipment fee at the "(Industry/CHOP)" rate, but CAMS does not mark the protocol as industry-sponsored — the fee should have carried the standard rate.',
+      'Dogfish billed the Stimulus/Response Equipment fee at the "(Ind)" industry rate, but CAMS does not mark the protocol as industry-sponsored — the fee should have carried the standard rate.',
   },
   {
     label: "Neuroreader Billing Missed",
@@ -57,12 +59,12 @@ export const VIOLATION_RULE_EXPLANATIONS: RuleExplanation[] = [
   {
     label: "Neuroreader Billed As Government",
     description:
-      'Dogfish billed the standard Research Report Reader (Neuroreader) fee, but CAMS marks the protocol as industry-sponsored — the fee should have carried the "(Industry/CHOP)" rate.',
+      `Dogfish billed the standard Research Report Reader (Neuroreader) fee, but CAMS marks the protocol as industry-sponsored — the fee should have carried the "(Industry)" rate. Only scans on or after ${INDUSTRY_FEE_RATE_START} are checked, because the industry rate did not exist before then.`,
   },
   {
     label: "Neuroreader Billed As Industry",
     description:
-      'Dogfish billed the Research Report Reader (Neuroreader) fee at the "(Industry/CHOP)" rate, but CAMS does not mark the protocol as industry-sponsored — the fee should have carried the standard rate.',
+      'Dogfish billed the Research Report Reader (Neuroreader) fee at the "(Industry)" rate, but CAMS does not mark the protocol as industry-sponsored — the fee should have carried the standard rate.',
   },
   {
     label: "Neuroreader Billed At Stellar Chance",

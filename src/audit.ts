@@ -26,6 +26,9 @@ export const SERVICE_MAP: Record<string, keyof ServiceFlags> = {
   "Human MRI": "humanMRI",
   "Human MRI (Industry/CHOP)": "humanMRIIndustry",
   "Human MRI (Ex-vivo scanning)": "humanMRIExVivo",
+  "Human MRI (industry/external)": "humanMRIExternal",
+  // The old name of "Human MRI (industry/external)". Older exports still
+  // use it.
   "Human MRI (external)": "humanMRIExternal",
   "MRI after hr no tech": "humanMRIAfterHours",
   "Human MRI (Prodev Tier 1)": "humanMRIProdevTier1",
@@ -33,9 +36,9 @@ export const SERVICE_MAP: Record<string, keyof ServiceFlags> = {
   "Animal MRI": "animalMRI",
   "Animal MRI (Industry/CHOP)": "animalMRIIndustry",
   "Stimulus/Response Equipment Usage Fee": "stimulus",
-  "Stimulus/Response Equipment Usage Fee (Industry/CHOP)": "stimulusIndustry",
+  "Stimulus/Response Equipment Usage Fee (Ind)": "stimulusIndustry",
   "Research Report Reader Fee": "neuroreader",
-  "Research Report Reader Fee (Industry/CHOP)": "neuroreaderIndustry",
+  "Research Report Reader Fee (Industry)": "neuroreaderIndustry",
 };
 
 export const NO_SHOW_SERVICE = "No Show/Cancellation Fee";
@@ -45,10 +48,16 @@ export const TARGET_SCANNER = "SC7T";
 // per calendar month before the rest are reported as excess.
 export const LATE_CANCELLATION_ALLOWANCE = 2;
 
+// The first scan date ("YYYY-MM-DD") on which the industry rates of the
+// Stimulus/Response Equipment and Research Report Reader fees exist.
+// Before it, the standard fee was the only rate, so a standard fee on an
+// industry-sponsored protocol is correct for an earlier scan.
+export const INDUSTRY_FEE_RATE_START = "2026-07-01";
+
 // Derived from SERVICE_MAP instead of separate literals, so the two
 // cannot drift apart if Dogfish ever renames a service. The Research
 // Report Reader fee has two Dogfish services — the standard one and the
-// "(Industry/CHOP)" rate — and the Stellar Chance check covers both.
+// "(Industry)" rate — and the Stellar Chance check covers both.
 const READER_SERVICES = new Set(
   Object.keys(SERVICE_MAP).filter(
     (service) =>
@@ -56,9 +65,15 @@ const READER_SERVICES = new Set(
       SERVICE_MAP[service] === "neuroreaderIndustry"
   )
 );
-const HUMAN_MRI_EXTERNAL_SERVICE = Object.keys(SERVICE_MAP).find(
-  (service) => SERVICE_MAP[service] === "humanMRIExternal"
-)!;
+// Every Dogfish label for the external MRI rate, current and old. Use a
+// set built with filter(), not find(): find() returns only the first
+// label, and the other label's rows would silently drop out of the
+// external events table.
+const HUMAN_MRI_EXTERNAL_SERVICES = new Set(
+  Object.keys(SERVICE_MAP).filter(
+    (service) => SERVICE_MAP[service] === "humanMRIExternal"
+  )
+);
 const STELLAR_CHANCE_SCANNERS = new Set(["SC3T", "SC7T"]);
 
 // Dogfish and CAMS protocol numbers use one of three formats:
@@ -127,6 +142,15 @@ function orFlags(a: ServiceFlags, b: ServiceFlags): ServiceFlags {
 
 function isAnimalProtocolFormat(rawProtocolNumber: string): boolean {
   return ANIMAL_PROTOCOL.test(rawProtocolNumber);
+}
+
+/** True when a Scan Time's date is on or after `date` ("YYYY-MM-DD").
+ * Scan Time starts with "YYYY-MM-DD", which compares correctly as text.
+ * A Scan Time with no such date also returns true, so a check gated on
+ * a date still runs and can flag the event, instead of hiding it. */
+function isOnOrAfter(scanTime: string, date: string): boolean {
+  const scanDate = scanTime.match(/^\d{4}-\d{2}-\d{2}/)?.[0];
+  return scanDate === undefined || scanDate >= date;
 }
 
 function isValidProtocolFormat(rawProtocolNumber: string): boolean {
@@ -251,9 +275,9 @@ function buildScannerEvents(dogfishRows: CsvRow[]): ScannerEventRow[] {
   return rows;
 }
 
-/** Every raw Dogfish row billed as Human MRI (External), on any scanner.
- * Like buildScannerEvents, this is not grouped or deduped, and includes
- * no-shows. */
+/** Every raw Dogfish row billed at the external MRI rate, under either
+ * of its labels, on any scanner. Like buildScannerEvents, this is not
+ * grouped or deduped, and includes no-shows. */
 function buildHumanMriExternalEvents(
   dogfishRows: CsvRow[]
 ): HumanMriExternalEventRow[] {
@@ -261,7 +285,7 @@ function buildHumanMriExternalEvents(
 
   for (const row of dogfishRows) {
     const service = field(row, "Service");
-    if (service !== HUMAN_MRI_EXTERNAL_SERVICE) continue;
+    if (!HUMAN_MRI_EXTERNAL_SERVICES.has(service)) continue;
 
     rows.push({
       eventId: field(row, "Event ID"),
@@ -397,7 +421,7 @@ function buildAddOnsWithoutMri(events: DogfishEvent[]): AddOnWithoutMriRow[] {
 
   for (const event of events) {
     const { flags } = event;
-    // Either rate of a fee — the standard service or its "(Industry/CHOP)"
+    // Either rate of a fee — the standard service or its industry
     // variant — counts as that add-on being billed on the event.
     const stimulusBilled = flags.stimulus || flags.stimulusIndustry;
     const readerBilled = flags.neuroreader || flags.neuroreaderIndustry;
@@ -614,12 +638,26 @@ function computeFlags(
   const animalFormat = isAnimalProtocolFormat(protocolNumberRaw);
   const camsIndustry = cams?.industrySponsored === "Yes";
 
+  // The external MRI rate serves external users, industry or not, so CAMS
+  // sponsorship cannot say whether it is right. An event billed at it is
+  // never flagged as industry billed as government. A person reviews
+  // every external event on the Human MRI (Industry/External) Events
+  // table instead.
+  const billedExternal = flags.humanMRIExternal;
+
   // Either rate of an ancillary fee — the standard service or its
-  // "(Industry/CHOP)" variant — counts as that fee being billed for the
-  // REDCap approved-vs-billed reconciliation below. The rate-vs-
-  // sponsorship check further down is what looks at which rate it was.
+  // industry variant — counts as that fee being billed for the REDCap
+  // approved-vs-billed reconciliation below. The rate-vs-sponsorship
+  // check further down is what looks at which rate it was.
   const stimulusBilled = flags.stimulus || flags.stimulusIndustry;
   const readerBilled = flags.neuroreader || flags.neuroreaderIndustry;
+
+  // A standard ancillary fee on an industry-sponsored protocol is only
+  // wrong once the industry fee rates exist.
+  const industryFeeRateInEffect = isOnOrAfter(
+    event.scanTime,
+    INDUSTRY_FEE_RATE_START
+  );
 
   // Scans on the Stellar Chance scanners should not have Neuroreader
   // services, so a missing Neuroreader charge there is expected and not
@@ -628,7 +666,7 @@ function computeFlags(
 
   return {
     industryBilledAsGovernment: cams
-      ? !billedIndustry && camsIndustry
+      ? !billedIndustry && !billedExternal && camsIndustry
       : undefined,
     governmentBilledAsIndustry: cams
       ? billedIndustry && !camsIndustry
@@ -649,16 +687,18 @@ function computeFlags(
     stimulusBillingExtra: redcap
       ? stimulusBilled && !redcap.stimulus
       : undefined,
-    // An ancillary fee should carry the "(Industry/CHOP)" rate when, and
-    // only when, CAMS marks the protocol industry-sponsored. These mirror
+    // An ancillary fee should carry its industry rate when, and only
+    // when, CAMS marks the protocol industry-sponsored. These mirror
     // industryBilledAsGovernment / governmentBilledAsIndustry above, but
     // scoped to the specific fee billed on this event, and need a CAMS
     // record the same way (no record -> undefined -> the event lands on
-    // the Mismatches table). The "(Industry/CHOP)" ancillary flags are
+    // the Mismatches table). The industry-rate ancillary flags are
     // deliberately kept out of billedIndustry (see README) — this pair of
-    // checks is the only place they are read.
+    // checks is the only place they are read. "Billed as government" is
+    // checked only from INDUSTRY_FEE_RATE_START on; "billed as industry"
+    // has no date limit.
     stimulusBilledAsGovernment: cams
-      ? flags.stimulus && camsIndustry
+      ? flags.stimulus && camsIndustry && industryFeeRateInEffect
       : undefined,
     stimulusBilledAsIndustry: cams
       ? flags.stimulusIndustry && !camsIndustry
@@ -670,7 +710,7 @@ function computeFlags(
       ? readerBilled && !redcap.neuroreader
       : undefined,
     neuroreaderBilledAsGovernment: cams
-      ? flags.neuroreader && camsIndustry
+      ? flags.neuroreader && camsIndustry && industryFeeRateInEffect
       : undefined,
     neuroreaderBilledAsIndustry: cams
       ? flags.neuroreaderIndustry && !camsIndustry
