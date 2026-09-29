@@ -11,6 +11,7 @@ import type {
   ComputedFlags,
   DedupedMismatchRow,
   DisagreeingSource,
+  FeeOnExternalProtocolRow,
   FixedSourceViolationFlag,
   HumanMriExternalEventRow,
   LateCancellationRow,
@@ -513,6 +514,69 @@ function buildAddOnsWithoutMri(events: DogfishEvent[]): AddOnWithoutMriRow[] {
       });
     }
   }
+
+  return rows;
+}
+
+/** Reports every event that bills a Stimulus or Neuroreader fee, at
+ * either rate, on an external protocol. External protocols should never
+ * bill these fees. No data source outside Dogfish marks a protocol as
+ * external, so a protocol counts as external for an event when either:
+ * - the event itself bills the external MRI rate, under either label, or
+ * - some other Dogfish event in the upload bills that same protocol at
+ *   the external rate.
+ * The second test also catches a fee on an event whose MRI line was
+ * wrongly billed at another rate. Protocols are matched by their exact,
+ * un-normalized Dogfish Protocol Number, the same way
+ * buildNoShowsOnProdevProtocols matches them: normalization would merge
+ * different protocols that share a 6-digit base. `events` holds only the
+ * non-no-show billing, so no-shows are left out. */
+function buildFeesOnExternalProtocols(
+  events: DogfishEvent[]
+): FeeOnExternalProtocolRow[] {
+  const externalProtocols = new Set<string>();
+  for (const event of events) {
+    if (event.flags.humanMRIExternal) {
+      externalProtocols.add(event.protocolNumberRaw);
+    }
+  }
+
+  const rows: FeeOnExternalProtocolRow[] = [];
+
+  for (const event of events) {
+    const { flags } = event;
+    const billedExternalHere = flags.humanMRIExternal;
+    if (!billedExternalHere && !externalProtocols.has(event.protocolNumberRaw)) {
+      continue;
+    }
+
+    // Either rate of a fee — the standard service or its industry
+    // variant — counts as that fee being billed. The names match the
+    // columns of the Add-On Fees Without MRI table.
+    const feesBilled: string[] = [];
+    if (flags.stimulus || flags.stimulusIndustry) feesBilled.push("Stimulus");
+    if (flags.neuroreader || flags.neuroreaderIndustry) {
+      feesBilled.push("Neuroreader");
+    }
+    if (feesBilled.length === 0) continue;
+
+    rows.push({
+      eventId: event.eventId,
+      protocolNumber: event.protocolNumberRaw,
+      projectTitle: event.projectTitle,
+      scanTime: event.scanTime,
+      scanner: event.scanner,
+      feesBilled: feesBilled.join(", "),
+      externalRateBilledOn: billedExternalHere ? "This event" : "Another event",
+    });
+  }
+
+  rows.sort(
+    (a, b) =>
+      compareNumericText(a.protocolNumber, b.protocolNumber) ||
+      a.scanTime.localeCompare(b.scanTime) ||
+      compareNumericText(a.eventId, b.eventId)
+  );
 
   return rows;
 }
@@ -1109,5 +1173,6 @@ export function runAudit(
     humanMriExternalEvents: buildHumanMriExternalEvents(dogfishRows),
     prodevConsistencyIssues: buildProdevConsistencyIssues(events),
     addOnsWithoutMri: buildAddOnsWithoutMri(events),
+    feesOnExternalProtocols: buildFeesOnExternalProtocols(events),
   };
 }

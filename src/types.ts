@@ -274,6 +274,28 @@ export interface NoShowOnProdevRow {
   prodevServicesBilled: string;
 }
 
+/** A Dogfish event that bills a Stimulus fee, a Neuroreader fee, or both,
+ * at either rate, on an external protocol. External protocols should
+ * never bill these fees. A protocol counts as external for the event when
+ * the event itself bills the external MRI rate, under either label, or
+ * when another Dogfish event in the upload bills that exact protocol
+ * number at the external rate. Protocols are matched by their exact,
+ * un-normalized number. Events are grouped by Event ID, and no-shows are
+ * excluded. */
+export interface FeeOnExternalProtocolRow {
+  eventId: string;
+  protocolNumber: string;
+  projectTitle: string;
+  scanTime: string;
+  scanner: string;
+  /** The fees billed on the event, comma-separated: "Stimulus",
+   * "Neuroreader", or "Stimulus, Neuroreader". */
+  feesBilled: string;
+  /** Where the external rate that makes the protocol external was
+   * billed: on this event, or on another event of the same protocol. */
+  externalRateBilledOn: "This event" | "Another event";
+}
+
 export interface AuditResult {
   violations: ViolationRow[];
   violationIssues: ViolationIssueRow[];
@@ -286,4 +308,5 @@ export interface AuditResult {
   humanMriExternalEvents: HumanMriExternalEventRow[];
   prodevConsistencyIssues: ProdevConsistencyRow[];
   addOnsWithoutMri: AddOnWithoutMriRow[];
+  feesOnExternalProtocols: FeeOnExternalProtocolRow[];
 }

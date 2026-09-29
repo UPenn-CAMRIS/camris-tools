@@ -75,6 +75,8 @@ normalized protocol number) and flags:
 - A Prodev-tier service billed on a protocol whose number doesn't carry the
   usual Prodev naming, and vice versa
 - A no-show billed to a Prodev protocol
+- A Stimulus/Response Equipment or Neuroreader fee, at either rate, billed on
+  an external protocol. External protocols should never bill these fees.
 
 Full plain-English descriptions of each rule are in an expandable panel under
 each results table in the app itself.
@@ -135,14 +137,27 @@ each results table in the app itself.
    that exact protocol number at Prodev Tier 1 or 2. Protocol numbers
    must match exactly (no normalization), so a Prodev scan on `832792-P`
    does not mark a no-show on `832792`.
-8. **SC7T Scanner Events** — every raw Dogfish row on the SC7T scanner,
+8. **Stimulus/Reader Fees On External Protocols** — every event (no-shows
+   left out) that billed a Stimulus/Response Equipment or Neuroreader fee,
+   at either the standard or the industry rate, on an external protocol,
+   one row per Event ID. External protocols should never bill these fees.
+   No data source outside Dogfish marks a protocol as external, so a
+   protocol counts as external when the event itself billed the external
+   MRI rate (`Human MRI (industry/external)` or the old label,
+   `Human MRI (external)`), or when another event in the upload billed
+   that exact protocol number at the external rate. The External Rate
+   Billed On column says which ("This event" or "Another event"). As with
+   the Prodev no-show table, protocol numbers must match exactly (no
+   normalization), so an external scan on `500001` does not mark a fee on
+   `500001-B`.
+9. **SC7T Scanner Events** — every raw Dogfish row on the SC7T scanner,
    including no-shows and cancellations, unfiltered by any audit rule.
-9. **Human MRI (Industry/External) Events** — every raw Dogfish row billed
-   at the external MRI rate, on any scanner, unfiltered by any audit rule.
-   It includes both the current label, `Human MRI (industry/external)`, and
-   the old label, `Human MRI (external)`. No data source outside Dogfish
-   marks a protocol as external, so this table is how a person checks each
-   external event.
+10. **Human MRI (Industry/External) Events** — every raw Dogfish row billed
+    at the external MRI rate, on any scanner, unfiltered by any audit rule.
+    It includes both the current label, `Human MRI (industry/external)`,
+    and the old label, `Human MRI (external)`. No data source outside
+    Dogfish marks a protocol as external, so this table is how a person
+    checks each external event.
 
 Every table can be exported to CSV from the button above it.
 

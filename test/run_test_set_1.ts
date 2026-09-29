@@ -36,6 +36,7 @@ const {
   humanMriExternalEvents,
   prodevConsistencyIssues,
   addOnsWithoutMri,
+  feesOnExternalProtocols,
 } = runAudit(dogfish.rows, cams.rows, redcap.rows);
 
 const { collisions: redcapCollisions } = buildRedcapLookup(redcap.rows);
@@ -89,6 +90,11 @@ console.table(excessLateCancellations);
 
 console.log(`\n${noShowsOnProdevProtocols.length} no-show events on Prodev protocols`);
 console.table(noShowsOnProdevProtocols);
+
+console.log(
+  `\n${feesOnExternalProtocols.length} Stimulus/Reader fee events on external protocols`
+);
+console.table(feesOnExternalProtocols);
 
 console.log(`\n${scannerEvents.length} SC7T scanner events (incl. no-shows)`);
 console.table(scannerEvents.slice(0, 20));

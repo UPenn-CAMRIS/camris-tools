@@ -16,6 +16,7 @@ import type {
   AddOnWithoutMriRow,
   AuditResult,
   DedupedMismatchRow,
+  FeeOnExternalProtocolRow,
   HumanMriExternalEventRow,
   LateCancellationRow,
   NoShowOnProdevRow,
@@ -159,6 +160,15 @@ export function renderAuditPage(app: HTMLElement): void {
         <div class="table-wrap" id="no-show-prodev-table"></div>
         <p class="table-note">Every "${NO_SHOW_SERVICE}" event on a Prodev protocol — one row per event, with its Event ID. A protocol counts as Prodev when its number ends with "-P", "_P", or "Prodev", or when another event in this upload billed that exact protocol number at a Prodev tier. Protocols are matched by their exact Dogfish Protocol Number (no normalization).</p>
         ${renderRuleExplanations(NO_SHOW_PRODEV_RULE_EXPLANATIONS)}
+      </div>
+
+      <div class="results-section">
+        <div class="results-section-header">
+          <h2>Stimulus/Reader Fees On External Protocols <span class="count" id="external-fees-count"></span></h2>
+          <button class="secondary" id="export-external-fees">Export CSV</button>
+        </div>
+        <div class="table-wrap" id="external-fees-table"></div>
+        <p class="table-note">Every event that billed a Stimulus/Response Equipment or Neuroreader (Research Report Reader) fee, at either the standard or the industry rate, on an external protocol — one row per event, with its Event ID. External protocols should never bill these fees. No data source outside Dogfish marks a protocol as external, so a protocol counts as external when the event itself billed the external MRI rate ("Human MRI (industry/external)" or the old label, "Human MRI (external)"), or when another event in this upload billed that exact protocol number at the external rate. Protocols are matched by their exact Dogfish Protocol Number (no normalization).</p>
       </div>
 
       <div class="results-section">
@@ -411,6 +421,16 @@ export function renderAuditPage(app: HTMLElement): void {
     { header: "Prodev Services Billed", get: (r) => r.prodevServicesBilled },
   ];
 
+  const externalFeeColumns: Column<FeeOnExternalProtocolRow>[] = [
+    { header: "Event ID", get: (r) => r.eventId },
+    { header: "Protocol Number", get: (r) => r.protocolNumber },
+    { header: "Project Title", get: (r) => r.projectTitle, wrap: true },
+    { header: "Scan Time", get: (r) => r.scanTime },
+    { header: "Scanner", get: (r) => r.scanner },
+    { header: "Fees Billed", get: (r) => r.feesBilled },
+    { header: "External Rate Billed On", get: (r) => r.externalRateBilledOn },
+  ];
+
   let lastResult: AuditResult = {
     violations: [],
     violationIssues: [],
@@ -423,6 +443,7 @@ export function renderAuditPage(app: HTMLElement): void {
     humanMriExternalEvents: [],
     prodevConsistencyIssues: [],
     addOnsWithoutMri: [],
+    feesOnExternalProtocols: [],
   };
 
   runButton.addEventListener("click", () => {
@@ -444,6 +465,7 @@ export function renderAuditPage(app: HTMLElement): void {
         humanMriExternalEvents,
         prodevConsistencyIssues,
         addOnsWithoutMri,
+        feesOnExternalProtocols,
       } = lastResult;
 
       const eventCount = new Set(violationIssues.map((r) => r.eventId)).size;
@@ -462,6 +484,7 @@ export function renderAuditPage(app: HTMLElement): void {
       setCount("mismatch-count", dedupedMismatches.length);
       setCount("late-cancellation-count", excessLateCancellations.length);
       setCount("no-show-prodev-count", noShowsOnProdevProtocols.length);
+      setCount("external-fees-count", feesOnExternalProtocols.length);
       setCount("scanner-event-count", scannerEvents.length);
       setCount("human-mri-external-count", humanMriExternalEvents.length);
       setCount("prodev-consistency-count", prodevConsistencyIssues.length);
@@ -496,6 +519,12 @@ export function renderAuditPage(app: HTMLElement): void {
         noShowProdevColumns,
         noShowsOnProdevProtocols,
         "No no-show events found on a Prodev protocol."
+      );
+      renderTable(
+        "external-fees-table",
+        externalFeeColumns,
+        feesOnExternalProtocols,
+        "No Stimulus or Neuroreader fees found on an external protocol."
       );
       renderTable(
         "scanner-events-table",
@@ -569,6 +598,15 @@ export function renderAuditPage(app: HTMLElement): void {
       downloadCsv(
         "no_shows_on_prodev_protocols.csv",
         toCsv(noShowProdevColumns, lastResult.noShowsOnProdevProtocols)
+      );
+    });
+
+  document
+    .getElementById("export-external-fees")!
+    .addEventListener("click", () => {
+      downloadCsv(
+        "fees_on_external_protocols.csv",
+        toCsv(externalFeeColumns, lastResult.feesOnExternalProtocols)
       );
     });
 
