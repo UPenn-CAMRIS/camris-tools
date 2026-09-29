@@ -41,7 +41,12 @@ changed. (This applies to every CSV upload in both tools.)
 The tool matches events to their protocol's CAMS and REDCap records (by a
 normalized protocol number) and flags:
 
-- Industry-sponsored protocols billed at the government rate, and vice versa
+- Industry-sponsored protocols billed at the government rate, and vice versa.
+  An event billed at the external rate, `Human MRI (industry/external)`, is
+  never flagged as industry billed at the government rate: that rate serves
+  external users whether or not they are industry, and every external event
+  is listed for review instead (see the Human MRI (Industry/External) Events
+  table).
 - Animal protocols billed under a human MRI service code, and vice versa
 - Stimulus/Response Equipment or Neuroreader (Research Report Reader) fees that
   were billed but not approved, or approved but never billed. An approved
@@ -49,9 +54,14 @@ normalized protocol number) and flags:
   scanner (Stellar Chance), because scans there should not have Neuroreader
   services.
 - A Stimulus/Response Equipment or Neuroreader fee billed at the standard rate
-  on an industry-sponsored protocol, or at the "(Industry/CHOP)" rate on one
-  that isn't — the same rate-vs-sponsorship check applied to Human MRI,
-  applied to these ancillary fees
+  on an industry-sponsored protocol, or at the industry rate
+  (`Stimulus/Response Equipment Usage Fee (Ind)`,
+  `Research Report Reader Fee (Industry)`) on one that isn't — the same
+  rate-vs-sponsorship check applied to Human MRI, applied to these ancillary
+  fees. The industry fee rates took effect on 1 July 2026
+  (`INDUSTRY_FEE_RATE_START` in `audit.ts`), so a standard fee on an
+  industry-sponsored protocol is flagged only for scans on or after that
+  date.
 - Neuroreader fees billed on the SC3T or SC7T scanner (Stellar Chance)
 - A Prodev-tier service billed on a protocol whose number doesn't carry the
   usual Prodev naming, and vice versa
@@ -78,8 +88,8 @@ each results table in the app itself.
    and still be correctly billed, so a row here is worth a look, not
    necessarily an error.
 5. **Add-On Fees Without MRI** — events billed for a Stimulus/Response
-   Equipment and/or Neuroreader fee (at either the standard or
-   "(Industry/CHOP)" rate) with no MRI service code on the same event.
+   Equipment and/or Neuroreader fee (at either the standard or the
+   industry rate) with no MRI service code on the same event.
    These fees are meant to ride along with a scan, so this is a
    data-quality flag independent of the CAMS/REDCap checks above.
 6. **Excess Late Cancellations** — each protocol is allowed two late
@@ -102,8 +112,12 @@ each results table in the app itself.
    does not mark a no-show on `832792`.
 8. **SC7T Scanner Events** — every raw Dogfish row on the SC7T scanner,
    including no-shows and cancellations, unfiltered by any audit rule.
-9. **Human MRI (External) Events** — every raw Dogfish row billed as Human
-   MRI (External), on any scanner, unfiltered by any audit rule.
+9. **Human MRI (Industry/External) Events** — every raw Dogfish row billed
+   at the external MRI rate, on any scanner, unfiltered by any audit rule.
+   It includes both the current label, `Human MRI (industry/external)`, and
+   the old label, `Human MRI (external)`. No data source outside Dogfish
+   marks a protocol as external, so this table is how a person checks each
+   external event.
 
 Every table can be exported to CSV from the button above it.
 
@@ -270,14 +284,25 @@ Match the Dogfish text exactly, including case. `sanityChecks.ts` reads its
 known-value list from `Object.keys(SERVICE_MAP)` automatically — do not
 duplicate the list there.
 
+When Dogfish renames a service, add the new name as a second key on the
+same flag, and keep the old name, because older exports still use it. That
+is how `Human MRI (industry/external)` and `Human MRI (external)` both map
+to `humanMRIExternal`. Code that picks out a service by its flag must then
+collect every matching key with `filter()`, as `READER_SERVICES` and
+`HUMAN_MRI_EXTERNAL_SERVICES` do. `find()` returns only the first key, and
+rows with the other name silently drop out.
+
 ### A service flag is not automatically "industry"
 
 `billedIndustry` in `computeFlags()` only checks `humanMRIIndustry` and
 `animalMRIIndustry`. A new service flag does not count as industry billing
 unless you add it to that line on purpose. Every non-industry variant added
-so far (External, after-hours, both Prodev tiers) was deliberately left out.
+so far (external, after-hours, both Prodev tiers) was deliberately left out.
+The external rate is also exempt from the "Industry Billed As Government"
+check (`billedExternal` in `computeFlags()`), because it serves external
+users whether or not they are industry.
 
-The `(Industry/CHOP)` ancillary-fee flags (`stimulusIndustry`,
+The industry-rate ancillary-fee flags (`stimulusIndustry`,
 `neuroreaderIndustry`) are also deliberately not on that line. `billedIndustry`
 is about the MRI service code; those two fees have their own dedicated
 Stimulus/Neuroreader "Billed As Government" / "Billed As Industry" check in

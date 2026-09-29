@@ -157,11 +157,11 @@ export function renderAuditPage(app: HTMLElement): void {
 
       <div class="results-section">
         <div class="results-section-header">
-          <h2>Human MRI (External) Events <span class="count" id="human-mri-external-count"></span></h2>
+          <h2>Human MRI (Industry/External) Events <span class="count" id="human-mri-external-count"></span></h2>
           <button class="secondary" id="export-human-mri-external">Export CSV</button>
         </div>
         <div class="table-wrap" id="human-mri-external-table"></div>
-        <p class="table-note">Every Dogfish row billed as Human MRI (External), on any scanner — not filtered by any audit rule.</p>
+        <p class="table-note">Every Dogfish row billed at the external MRI rate, on any scanner — not filtered by any audit rule. This includes both the current label, "Human MRI (industry/external)", and the old label, "Human MRI (external)". The Service column shows which one each row used.</p>
       </div>
     </div>
   `;
@@ -496,7 +496,7 @@ export function renderAuditPage(app: HTMLElement): void {
         "human-mri-external-table",
         humanMriExternalColumns,
         humanMriExternalEvents,
-        "No Human MRI (External) events found."
+        "No Human MRI (Industry/External) events found."
       );
       renderTable(
         "prodev-consistency-table",
