@@ -1,75 +1,81 @@
-import { INDUSTRY_FEE_RATE_START } from "./audit";
+import { INDUSTRY_FEE_RATE_START, VIOLATION_ISSUES } from "./audit";
+import type { ViolationFlag } from "./types";
 
 export interface RuleExplanation {
   label: string;
   description: string;
 }
 
-export const VIOLATION_RULE_EXPLANATIONS: RuleExplanation[] = [
-  {
-    label: "Industry Billed As Government",
+// The description of each violation issue. Its label is the issue name
+// from VIOLATION_ISSUES, so the two cannot drift apart, and the Record
+// type makes the compiler reject a flag with no description.
+const VIOLATION_DESCRIPTIONS: Record<
+  ViolationFlag,
+  Omit<RuleExplanation, "label">
+> = {
+  industryBilledAsGovernment: {
     description:
       "A Dogfish event for the protocol was billed at a non-industry MRI rate, but CAMS marks the protocol as industry-sponsored — industry-funded work may have been billed at the cheaper government/academic rate. An event billed at the external rate, Human MRI (industry/external), is never flagged here: that rate serves external users whether or not they are industry, and every external event is listed on the Human MRI (Industry/External) Events table for review.",
   },
-  {
-    label: "Government Billed As Industry",
+  governmentBilledAsIndustry: {
     description:
       "A Dogfish event was billed under an industry MRI service code, but CAMS does not mark the protocol as industry-sponsored — non-industry work may have been billed at the more expensive industry rate.",
   },
-  {
-    label: "Animal Billed As Human",
+  animalBilledAsHuman: {
     description:
       'A Dogfish event was billed under a Human MRI service code, but the protocol number matches the animal-protocol format ("AR" followed by 6 digits) — an animal study may have been billed as a human scan.',
   },
-  {
-    label: "Human Billed As Animal",
+  humanBilledAsAnimal: {
     description:
       'A Dogfish event was billed under an Animal MRI service code, but the protocol number does not match the animal-protocol format ("AR" followed by 6 digits) — a human study may have been billed as an animal scan.',
   },
-  {
-    label: "Stimulus Billing Missed",
+  stimulusBillingMissed: {
     description:
       "The protocol's approved REDCap review letter includes the Stimulus/Response Equipment fee, but no Stimulus charge was found in Dogfish — a fee that should have been billed may have been missed.",
   },
-  {
-    label: "Stimulus Billing Extra",
+  stimulusBillingExtra: {
     description:
       "Dogfish billed a Stimulus/Response Equipment fee for the protocol, but the approved REDCap review letter does not include that fee — an extra, unapproved fee may have been billed.",
   },
-  {
-    label: "Stimulus Billed As Government",
+  stimulusBilledAsGovernment: {
     description:
       `Dogfish billed the standard Stimulus/Response Equipment fee, but CAMS marks the protocol as industry-sponsored — the fee should have carried the "(Ind)" industry rate. Only scans on or after ${INDUSTRY_FEE_RATE_START} are checked, because the industry rate did not exist before then.`,
   },
-  {
-    label: "Stimulus Billed As Industry",
+  stimulusBilledAsIndustry: {
     description:
       'Dogfish billed the Stimulus/Response Equipment fee at the "(Ind)" industry rate, but CAMS does not mark the protocol as industry-sponsored — the fee should have carried the standard rate.',
   },
-  {
-    label: "Neuroreader Billing Missed",
+  neuroreaderBillingMissed: {
     description:
       "The protocol's approved REDCap review letter includes the Research Report Reader (Neuroreader) fee, but no such charge was found in Dogfish — a fee that should have been billed may have been missed. Events on the SC3T or SC7T scanner (Stellar Chance) are never flagged here, because scans there should not have Neuroreader services.",
   },
-  {
-    label: "Neuroreader Billing Extra",
+  neuroreaderBillingExtra: {
     description:
       "Dogfish billed a Research Report Reader (Neuroreader) fee for the protocol, but the approved REDCap review letter does not include that fee — an extra, unapproved fee may have been billed.",
   },
-  {
-    label: "Neuroreader Billed As Government",
+  neuroreaderBilledAsGovernment: {
     description:
       `Dogfish billed the standard Research Report Reader (Neuroreader) fee, but CAMS marks the protocol as industry-sponsored — the fee should have carried the "(Industry)" rate. Only scans on or after ${INDUSTRY_FEE_RATE_START} are checked, because the industry rate did not exist before then.`,
   },
-  {
-    label: "Neuroreader Billed As Industry",
+  neuroreaderBilledAsIndustry: {
     description:
       'Dogfish billed the Research Report Reader (Neuroreader) fee at the "(Industry)" rate, but CAMS does not mark the protocol as industry-sponsored — the fee should have carried the standard rate.',
   },
-  {
-    label: "Neuroreader Billed At Stellar Chance",
+  neuroreaderAtStellarChance: {
     description:
       "A Research Report Reader (Neuroreader) fee was billed on the SC3T or SC7T scanner (Stellar Chance) — flagged for review.",
+  },
+};
+
+export const VIOLATION_RULE_EXPLANATIONS: RuleExplanation[] = [
+  ...VIOLATION_ISSUES.map(({ flag, issue }) => ({
+    label: issue,
+    ...VIOLATION_DESCRIPTIONS[flag],
+  })),
+  {
+    label: "Disagreeing Source",
+    description:
+      'The data that disagrees with what Dogfish billed. "CAMS": whether CAMS marks the protocol as industry-sponsored. "REDCap letter": the fees that the protocol\'s approved REDCap review letter includes. "Protocol format": whether the protocol number matches the animal-protocol format ("AR" followed by 6 digits). "Scanner": the scanner the event was on.',
   },
 ];
 
@@ -117,10 +123,15 @@ export const NO_SHOW_PRODEV_RULE_EXPLANATIONS: RuleExplanation[] = [
   },
 ];
 
-export function renderRuleExplanations(items: RuleExplanation[]): string {
+/** Renders the collapsible panel of rule explanations shown under a
+ * results table. `summary` is the panel's clickable heading. */
+export function renderRuleExplanations(
+  items: RuleExplanation[],
+  summary = "What do these columns mean?"
+): string {
   return `
     <details class="detail-box rule-explainer">
-      <summary>What do these columns mean?</summary>
+      <summary>${summary}</summary>
       <dl>
         ${items
           .map(

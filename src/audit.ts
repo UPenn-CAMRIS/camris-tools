@@ -10,15 +10,19 @@ import type {
   AuditResult,
   ComputedFlags,
   DedupedMismatchRow,
-  DedupedViolationRow,
+  DisagreeingSource,
   HumanMriExternalEventRow,
   LateCancellationRow,
   MismatchRow,
   NoShowOnProdevRow,
   ProdevConsistencyRow,
+  ProtocolIssueRow,
   RedcapNameCollision,
   ScannerEventRow,
   ServiceFlags,
+  ViolationFlag,
+  ViolationIssue,
+  ViolationIssueRow,
   ViolationRow,
 } from "./types";
 
@@ -75,6 +79,75 @@ const HUMAN_MRI_EXTERNAL_SERVICES = new Set(
   )
 );
 const STELLAR_CHANCE_SCANNERS = new Set(["SC3T", "SC7T"]);
+
+// The issue name and disagreeing source for each ViolationRow flag. The
+// Record type makes the compiler reject a ViolationRow boolean flag with
+// no entry here, so a new flag cannot silently drop out of the tables.
+// The entry order is the order issues appear in, everywhere.
+const VIOLATION_ISSUE_DEFINITIONS: Record<
+  ViolationFlag,
+  { issue: string; source: DisagreeingSource }
+> = {
+  industryBilledAsGovernment: {
+    issue: "Industry billed as government (MRI)",
+    source: "CAMS",
+  },
+  governmentBilledAsIndustry: {
+    issue: "Government billed as industry (MRI)",
+    source: "CAMS",
+  },
+  animalBilledAsHuman: {
+    issue: "Animal billed as human",
+    source: "Protocol format",
+  },
+  humanBilledAsAnimal: {
+    issue: "Human billed as animal",
+    source: "Protocol format",
+  },
+  stimulusBillingMissed: {
+    issue: "Stimulus billing missed",
+    source: "REDCap letter",
+  },
+  stimulusBillingExtra: {
+    issue: "Stimulus billing extra",
+    source: "REDCap letter",
+  },
+  stimulusBilledAsGovernment: {
+    issue: "Stimulus billed as government",
+    source: "CAMS",
+  },
+  stimulusBilledAsIndustry: {
+    issue: "Stimulus billed as industry",
+    source: "CAMS",
+  },
+  neuroreaderBillingMissed: {
+    issue: "Neuroreader billing missed",
+    source: "REDCap letter",
+  },
+  neuroreaderBillingExtra: {
+    issue: "Neuroreader billing extra",
+    source: "REDCap letter",
+  },
+  neuroreaderBilledAsGovernment: {
+    issue: "Neuroreader billed as government",
+    source: "CAMS",
+  },
+  neuroreaderBilledAsIndustry: {
+    issue: "Neuroreader billed as industry",
+    source: "CAMS",
+  },
+  neuroreaderAtStellarChance: {
+    issue: "Neuroreader billed at Stellar Chance",
+    source: "Scanner",
+  },
+};
+
+/** Every violation issue, in the order the results tables and the rule
+ * explanations list them. The one definition of each issue's name and
+ * disagreeing source. */
+export const VIOLATION_ISSUES: ViolationIssue[] = (
+  Object.keys(VIOLATION_ISSUE_DEFINITIONS) as ViolationFlag[]
+).map((flag) => ({ flag, ...VIOLATION_ISSUE_DEFINITIONS[flag] }));
 
 // Dogfish and CAMS protocol numbers use one of three formats:
 // - a 6-digit number, optionally followed by a suffix such as "_7X"
@@ -354,7 +427,7 @@ function buildExcessLateCancellations(
   }
 
   // Bucket the events by (protocol, month). The key is a JSON array —
-  // like the JSON keys dedupeViolations uses — so no delimiter can
+  // like the JSON keys dedupeMismatches uses — so no delimiter can
   // collide with a character inside the protocol number.
   const byProtocolMonth = new Map<string, CancellationEvent[]>();
   for (const event of eventsById.values()) {
@@ -719,30 +792,111 @@ function computeFlags(
   };
 }
 
-/** Removes Event ID, Scan Time, and Scanner from each violation. It then
- * collapses the rows into groups of unique remaining fields. Event ID
- * and Scan Time are both unique per event, so keeping either field
- * would prevent any grouping. Scanner can differ across a protocol's
- * events, so it has no single correct value at the protocol level. Use
- * this function to turn a per-event table into a per-protocol table. */
-function dedupeViolations(violations: ViolationRow[]): DedupedViolationRow[] {
-  const seen = new Map<string, DedupedViolationRow>();
-
-  for (const {
-    eventId: _eventId,
-    scanTime: _scanTime,
-    scanner: _scanner,
-    ...rest
-  } of violations) {
-    const key = JSON.stringify(rest);
-    if (!seen.has(key)) seen.set(key, rest);
-  }
-
-  return [...seen.values()];
+/** Compares two identifiers so that runs of digits sort by number: "9"
+ * comes before "10". */
+function compareNumericText(a: string, b: string): number {
+  return a.localeCompare(b, undefined, { numeric: true });
 }
 
-/** Works like dedupeViolations, but for mismatches. Mismatches have only
- * one per-event field, Event ID, so this function drops just that field. */
+/** Splits each violation into one row per true flag, so that each row is
+ * one error on one event. Rows are sorted by Event ID, then by issue in
+ * VIOLATION_ISSUES order. */
+function buildViolationIssues(violations: ViolationRow[]): ViolationIssueRow[] {
+  const ranked: { row: ViolationIssueRow; rank: number }[] = [];
+
+  for (const violation of violations) {
+    VIOLATION_ISSUES.forEach(({ flag, issue, source }, rank) => {
+      if (!violation[flag]) return;
+      ranked.push({
+        row: {
+          eventId: violation.eventId,
+          protocolNumber: violation.protocolNumber,
+          scanTime: violation.scanTime,
+          scanner: violation.scanner,
+          issue,
+          source,
+        },
+        rank,
+      });
+    });
+  }
+
+  ranked.sort(
+    (a, b) =>
+      compareNumericText(a.row.eventId, b.row.eventId) || a.rank - b.rank
+  );
+  return ranked.map(({ row }) => row);
+}
+
+/** Groups the violations by raw protocol number and issue, one row per
+ * pair, with the number of distinct events and the first and last Scan
+ * Time among them. Scan Time compares as text, which puts
+ * "YYYY-MM-DD HH:MM:SS" values in time order; blank values are ignored.
+ * Rows are sorted by protocol number, then by issue in VIOLATION_ISSUES
+ * order. */
+function buildProtocolIssues(violations: ViolationRow[]): ProtocolIssueRow[] {
+  interface Group {
+    protocolNumber: string;
+    definition: ViolationIssue;
+    rank: number;
+    eventIds: Set<string>;
+    firstScan: string;
+    lastScan: string;
+  }
+
+  // The key is a JSON array, like the JSON keys dedupeMismatches uses, so
+  // no delimiter can collide with a character inside the protocol number.
+  const groups = new Map<string, Group>();
+
+  for (const violation of violations) {
+    VIOLATION_ISSUES.forEach((definition, rank) => {
+      if (!violation[definition.flag]) return;
+
+      const key = JSON.stringify([violation.protocolNumber, definition.flag]);
+      let group = groups.get(key);
+      if (!group) {
+        group = {
+          protocolNumber: violation.protocolNumber,
+          definition,
+          rank,
+          eventIds: new Set(),
+          firstScan: "",
+          lastScan: "",
+        };
+        groups.set(key, group);
+      }
+
+      group.eventIds.add(violation.eventId);
+      const { scanTime } = violation;
+      if (scanTime === "") return;
+      if (group.firstScan === "" || scanTime < group.firstScan) {
+        group.firstScan = scanTime;
+      }
+      if (group.lastScan === "" || scanTime > group.lastScan) {
+        group.lastScan = scanTime;
+      }
+    });
+  }
+
+  return [...groups.values()]
+    .sort(
+      (a, b) =>
+        compareNumericText(a.protocolNumber, b.protocolNumber) ||
+        a.rank - b.rank
+    )
+    .map((group) => ({
+      protocolNumber: group.protocolNumber,
+      issue: group.definition.issue,
+      source: group.definition.source,
+      events: group.eventIds.size,
+      firstScan: group.firstScan,
+      lastScan: group.lastScan,
+    }));
+}
+
+/** Removes Event ID from each mismatch. It then collapses the rows into
+ * groups of unique remaining fields, one row per distinct protocol and
+ * mismatch-flag combination. */
 function dedupeMismatches(mismatches: MismatchRow[]): DedupedMismatchRow[] {
   const seen = new Map<string, DedupedMismatchRow>();
 
@@ -836,7 +990,8 @@ export function runAudit(
 
   return {
     violations,
-    dedupedViolations: dedupeViolations(violations),
+    violationIssues: buildViolationIssues(violations),
+    protocolIssues: buildProtocolIssues(violations),
     mismatches,
     dedupedMismatches: dedupeMismatches(mismatches),
     excessLateCancellations: buildExcessLateCancellations(dogfishRows),

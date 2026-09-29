@@ -16,14 +16,14 @@ import type {
   AddOnWithoutMriRow,
   AuditResult,
   DedupedMismatchRow,
-  DedupedViolationRow,
   HumanMriExternalEventRow,
   LateCancellationRow,
   NoShowOnProdevRow,
   ProdevConsistencyRow,
+  ProtocolIssueRow,
   RedcapNameCollision,
   ScannerEventRow,
-  ViolationRow,
+  ViolationIssueRow,
 } from "../types";
 import {
   MISMATCH_RULE_EXPLANATIONS,
@@ -32,7 +32,13 @@ import {
   VIOLATION_RULE_EXPLANATIONS,
   renderRuleExplanations,
 } from "../ruleExplanations";
-import { setStatus, setCount, renderSanityChecks, renderCsvWarnings } from "../uploadUi";
+import {
+  setStatus,
+  setCount,
+  setCountText,
+  renderSanityChecks,
+  renderCsvWarnings,
+} from "../uploadUi";
 import { renderTable } from "../table";
 import { renderPageNav } from "../nav";
 
@@ -41,6 +47,15 @@ interface FileSlot {
   label: string;
   accept: string;
   formats: string;
+}
+
+// The heading of the rule-explanation panel under both violations tables,
+// which list issues as rows, not as columns.
+const VIOLATION_SUMMARY = "What do these issues mean?";
+
+/** "1 error", "2 errors", and so on. */
+function countOf(count: number, singular: string, plural: string): string {
+  return `${count} ${count === 1 ? singular : plural}`;
 }
 
 const SLOTS: FileSlot[] = [
@@ -84,20 +99,20 @@ export function renderAuditPage(app: HTMLElement): void {
     <div id="results" class="results">
       <div class="results-section">
         <div class="results-section-header">
-          <h2>Violations by Protocol <span class="count" id="deduped-violation-count"></span></h2>
-          <button class="secondary" id="export-deduped-violations">Export CSV</button>
+          <h2>Violations by Protocol <span class="count" id="protocol-issue-count"></span></h2>
+          <button class="secondary" id="export-protocol-issues">Export CSV</button>
         </div>
-        <div class="table-wrap" id="deduped-violations-table"></div>
-        ${renderRuleExplanations(VIOLATION_RULE_EXPLANATIONS)}
+        <div class="table-wrap" id="protocol-issues-table"></div>
+        ${renderRuleExplanations(VIOLATION_RULE_EXPLANATIONS, VIOLATION_SUMMARY)}
       </div>
 
       <div class="results-section">
         <div class="results-section-header">
-          <h2>Violations by Event <span class="count" id="violation-count"></span></h2>
-          <button class="secondary" id="export-violations">Export CSV</button>
+          <h2>Violations by Event <span class="count" id="violation-issue-count"></span></h2>
+          <button class="secondary" id="export-violation-issues">Export CSV</button>
         </div>
-        <div class="table-wrap" id="violations-table"></div>
-        ${renderRuleExplanations(VIOLATION_RULE_EXPLANATIONS)}
+        <div class="table-wrap" id="violation-issues-table"></div>
+        ${renderRuleExplanations(VIOLATION_RULE_EXPLANATIONS, VIOLATION_SUMMARY)}
       </div>
 
       <div class="results-section">
@@ -303,41 +318,24 @@ export function renderAuditPage(app: HTMLElement): void {
     errorBanner.style.display = "block";
   }
 
-  const violationColumns: Column<ViolationRow>[] = [
+  // Each column list below drives both the table on screen and its CSV
+  // export, so the two always match.
+  const violationIssueColumns: Column<ViolationIssueRow>[] = [
     { header: "Event ID", get: (r) => r.eventId },
     { header: "Protocol Number", get: (r) => r.protocolNumber },
     { header: "Scan Time", get: (r) => r.scanTime },
     { header: "Scanner", get: (r) => r.scanner },
-    { header: "Industry Billed As Government", get: (r) => r.industryBilledAsGovernment },
-    { header: "Government Billed As Industry", get: (r) => r.governmentBilledAsIndustry },
-    { header: "Animal Billed As Human", get: (r) => r.animalBilledAsHuman },
-    { header: "Human Billed As Animal", get: (r) => r.humanBilledAsAnimal },
-    { header: "Stimulus Billing Missed", get: (r) => r.stimulusBillingMissed },
-    { header: "Stimulus Billing Extra", get: (r) => r.stimulusBillingExtra },
-    { header: "Stimulus Billed As Government", get: (r) => r.stimulusBilledAsGovernment },
-    { header: "Stimulus Billed As Industry", get: (r) => r.stimulusBilledAsIndustry },
-    { header: "Neuroreader Billing Missed", get: (r) => r.neuroreaderBillingMissed },
-    { header: "Neuroreader Billing Extra", get: (r) => r.neuroreaderBillingExtra },
-    { header: "Neuroreader Billed As Government", get: (r) => r.neuroreaderBilledAsGovernment },
-    { header: "Neuroreader Billed As Industry", get: (r) => r.neuroreaderBilledAsIndustry },
-    { header: "Neuroreader Billed At Stellar Chance", get: (r) => r.neuroreaderAtStellarChance },
+    { header: "Issue", get: (r) => r.issue },
+    { header: "Disagreeing Source", get: (r) => r.source },
   ];
 
-  const dedupedViolationColumns: Column<DedupedViolationRow>[] = [
+  const protocolIssueColumns: Column<ProtocolIssueRow>[] = [
     { header: "Protocol Number", get: (r) => r.protocolNumber },
-    { header: "Industry Billed As Government", get: (r) => r.industryBilledAsGovernment },
-    { header: "Government Billed As Industry", get: (r) => r.governmentBilledAsIndustry },
-    { header: "Animal Billed As Human", get: (r) => r.animalBilledAsHuman },
-    { header: "Human Billed As Animal", get: (r) => r.humanBilledAsAnimal },
-    { header: "Stimulus Billing Missed", get: (r) => r.stimulusBillingMissed },
-    { header: "Stimulus Billing Extra", get: (r) => r.stimulusBillingExtra },
-    { header: "Stimulus Billed As Government", get: (r) => r.stimulusBilledAsGovernment },
-    { header: "Stimulus Billed As Industry", get: (r) => r.stimulusBilledAsIndustry },
-    { header: "Neuroreader Billing Missed", get: (r) => r.neuroreaderBillingMissed },
-    { header: "Neuroreader Billing Extra", get: (r) => r.neuroreaderBillingExtra },
-    { header: "Neuroreader Billed As Government", get: (r) => r.neuroreaderBilledAsGovernment },
-    { header: "Neuroreader Billed As Industry", get: (r) => r.neuroreaderBilledAsIndustry },
-    { header: "Neuroreader Billed At Stellar Chance", get: (r) => r.neuroreaderAtStellarChance },
+    { header: "Issue", get: (r) => r.issue },
+    { header: "Disagreeing Source", get: (r) => r.source },
+    { header: "Events", get: (r) => String(r.events) },
+    { header: "First Scan", get: (r) => r.firstScan },
+    { header: "Last Scan", get: (r) => r.lastScan },
   ];
 
   const mismatchColumns: Column<DedupedMismatchRow>[] = [
@@ -414,7 +412,8 @@ export function renderAuditPage(app: HTMLElement): void {
 
   let lastResult: AuditResult = {
     violations: [],
-    dedupedViolations: [],
+    violationIssues: [],
+    protocolIssues: [],
     mismatches: [],
     dedupedMismatches: [],
     excessLateCancellations: [],
@@ -435,8 +434,8 @@ export function renderAuditPage(app: HTMLElement): void {
 
       lastResult = runAudit(dogfishRows, camsRows, redcapRows);
       const {
-        violations,
-        dedupedViolations,
+        violationIssues,
+        protocolIssues,
         dedupedMismatches,
         excessLateCancellations,
         noShowsOnProdevProtocols,
@@ -446,8 +445,19 @@ export function renderAuditPage(app: HTMLElement): void {
         addOnsWithoutMri,
       } = lastResult;
 
-      setCount("violation-count", violations.length);
-      setCount("deduped-violation-count", dedupedViolations.length);
+      const eventCount = new Set(violationIssues.map((r) => r.eventId)).size;
+      setCountText(
+        "violation-issue-count",
+        `${countOf(violationIssues.length, "error", "errors")} across ` +
+          countOf(eventCount, "event", "events")
+      );
+      const protocolCount = new Set(protocolIssues.map((r) => r.protocolNumber))
+        .size;
+      setCountText(
+        "protocol-issue-count",
+        `${countOf(protocolIssues.length, "error", "errors")} across ` +
+          countOf(protocolCount, "protocol", "protocols")
+      );
       setCount("mismatch-count", dedupedMismatches.length);
       setCount("late-cancellation-count", excessLateCancellations.length);
       setCount("no-show-prodev-count", noShowsOnProdevProtocols.length);
@@ -457,15 +467,15 @@ export function renderAuditPage(app: HTMLElement): void {
       setCount("addon-count", addOnsWithoutMri.length);
 
       renderTable(
-        "violations-table",
-        violationColumns,
-        violations,
+        "violation-issues-table",
+        violationIssueColumns,
+        violationIssues,
         "No violations found."
       );
       renderTable(
-        "deduped-violations-table",
-        dedupedViolationColumns,
-        dedupedViolations,
+        "protocol-issues-table",
+        protocolIssueColumns,
+        protocolIssues,
         "No violations found."
       );
       renderTable(
@@ -518,19 +528,21 @@ export function renderAuditPage(app: HTMLElement): void {
     }
   });
 
-  document.getElementById("export-violations")!.addEventListener("click", () => {
-    downloadCsv(
-      "audit_violations.csv",
-      toCsv(violationColumns, lastResult.violations)
-    );
-  });
+  document
+    .getElementById("export-violation-issues")!
+    .addEventListener("click", () => {
+      downloadCsv(
+        "audit_violations.csv",
+        toCsv(violationIssueColumns, lastResult.violationIssues)
+      );
+    });
 
   document
-    .getElementById("export-deduped-violations")!
+    .getElementById("export-protocol-issues")!
     .addEventListener("click", () => {
       downloadCsv(
         "audit_violations_by_protocol.csv",
-        toCsv(dedupedViolationColumns, lastResult.dedupedViolations)
+        toCsv(protocolIssueColumns, lastResult.protocolIssues)
       );
     });
 
