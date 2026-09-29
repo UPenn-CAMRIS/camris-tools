@@ -60,16 +60,56 @@ export interface ComputedFlags {
   neuroreaderAtStellarChance: boolean;
 }
 
-/** Holds the same violation flags as ViolationRow, but with one row per
- * distinct protocol and violation-flag combination. It drops Event ID
- * and Scan Time, since both are unique per event and would prevent any
- * grouping. It also drops Scanner, since a protocol can be scanned on
- * more than one scanner across its events. Use this type to see which
- * protocols have a given violation, without one row per billing event. */
-export type DedupedViolationRow = Omit<
-  ViolationRow,
-  "eventId" | "scanTime" | "scanner"
->;
+/** The ViolationRow fields that each hold one violation check's result:
+ * every boolean field. A new boolean field on ViolationRow is a new
+ * flag, and VIOLATION_ISSUES in audit.ts must then define its issue. */
+export type ViolationFlag = {
+  [K in keyof ViolationRow]: ViolationRow[K] extends boolean ? K : never;
+}[keyof ViolationRow];
+
+/** The data that disagrees with what Dogfish billed, for one violation
+ * issue: CAMS industry sponsorship, the protocol number's animal or human
+ * format, the fees on the approved REDCap review letter, or the scanner
+ * the event ran on. */
+export type DisagreeingSource =
+  | "CAMS"
+  | "Protocol format"
+  | "REDCap letter"
+  | "Scanner";
+
+/** One violation check, as the results tables name it. */
+export interface ViolationIssue {
+  flag: ViolationFlag;
+  issue: string;
+  source: DisagreeingSource;
+}
+
+/** One violation on one Dogfish event: one row for each true flag on a
+ * ViolationRow. An event with two violations gets two rows, with its
+ * Event ID, Protocol Number, Scan Time, and Scanner repeated on each. */
+export interface ViolationIssueRow {
+  eventId: string;
+  protocolNumber: string;
+  scanTime: string;
+  scanner: string;
+  issue: string;
+  source: DisagreeingSource;
+}
+
+/** One violation issue on one protocol, over all of its events. Protocols
+ * are grouped by their exact, un-normalized Dogfish Protocol Number. A
+ * protocol with two different issues gets two rows. */
+export interface ProtocolIssueRow {
+  protocolNumber: string;
+  issue: string;
+  source: DisagreeingSource;
+  /** The number of distinct Event IDs with this issue on this protocol. */
+  events: number;
+  /** The earliest and latest Scan Time of those events, compared as text.
+   * A blank Scan Time is ignored; "" when every one is blank. */
+  firstScan: string;
+  lastScan: string;
+}
 
 export interface MismatchRow {
   eventId: string;
@@ -207,7 +247,8 @@ export interface NoShowOnProdevRow {
 
 export interface AuditResult {
   violations: ViolationRow[];
-  dedupedViolations: DedupedViolationRow[];
+  violationIssues: ViolationIssueRow[];
+  protocolIssues: ProtocolIssueRow[];
   mismatches: MismatchRow[];
   dedupedMismatches: DedupedMismatchRow[];
   excessLateCancellations: LateCancellationRow[];

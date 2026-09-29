@@ -27,7 +27,8 @@ for (const { file, warnings } of [
 
 const {
   violations,
-  dedupedViolations,
+  violationIssues,
+  protocolIssues,
   dedupedMismatches,
   excessLateCancellations,
   noShowsOnProdevProtocols,
@@ -44,8 +45,17 @@ console.table(redcapCollisions);
 console.log(`\n${violations.length} violation rows (per event)`);
 console.table(violations.slice(0, 20));
 
-console.log(`\n${dedupedViolations.length} deduped violation rows (per protocol)`);
-console.table(dedupedViolations.slice(0, 20));
+console.log(
+  `\n${violationIssues.length} violation issue rows (one per error) across ` +
+    `${new Set(violationIssues.map((r) => r.eventId)).size} events`
+);
+console.table(violationIssues.slice(0, 20));
+
+console.log(
+  `\n${protocolIssues.length} protocol issue rows (one per protocol and issue) across ` +
+    `${new Set(protocolIssues.map((r) => r.protocolNumber)).size} protocols`
+);
+console.table(protocolIssues.slice(0, 20));
 
 const violationCounts: Record<string, number> = {};
 for (const v of violations) {

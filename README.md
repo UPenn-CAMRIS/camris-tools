@@ -72,11 +72,24 @@ each results table in the app itself.
 
 ### Output tables
 
-1. **Violations by Protocol** — one row per distinct
-   `(protocol, violation combination)`, Event ID dropped. Good for seeing which
-   protocols have a given problem.
-2. **Violations by Event** — one row per billing event, for tracing a specific
-   charge back to a specific scan.
+1. **Violations by Protocol** — one row per error on a protocol: each
+   `(protocol, issue)` pair, with columns Protocol Number, Issue,
+   Disagreeing Source, Events (how many events have that issue), First
+   Scan, and Last Scan. A protocol with two different issues has two rows.
+   Good for seeing which protocols have a given problem. The count next to
+   the heading reads, for example, "60 errors across 13 protocols".
+2. **Violations by Event** — one row per error on a billing event, with
+   columns Event ID, Protocol Number, Scan Time, Scanner, Issue, and
+   Disagreeing Source. An event with two violations has two rows. Good for
+   tracing a specific charge back to a specific scan. The count reads, for
+   example, "51 errors across 42 events".
+
+   In both tables, Disagreeing Source names the data that disagrees with
+   what Dogfish billed: `CAMS` (industry sponsorship), `REDCap letter` (the
+   fees the approved review letter includes), `Protocol format` (the animal
+   `AR` protocol-number format), or `Scanner` (Stellar Chance). Rows are
+   sorted by Event ID or protocol number, then in the fixed order of the
+   issues. The CSV export has exactly the columns shown on screen.
 3. **Mismatches** — protocols that couldn't be fully checked because they
    weren't found in CAMS, weren't found in an active ("Complete") REDCap
    review, or have a protocol number that doesn't match an expected format.

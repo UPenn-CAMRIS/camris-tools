@@ -28,7 +28,13 @@ export function setStatus(
 
 /** Sets a results-section count badge, for example "(3)". */
 export function setCount(id: string, count: number): void {
-  document.getElementById(id)!.textContent = `(${count})`;
+  setCountText(id, String(count));
+}
+
+/** Sets a results-section count badge to a short phrase in the same
+ * parentheses, for example "(3 errors across 2 events)". */
+export function setCountText(id: string, text: string): void {
+  document.getElementById(id)!.textContent = `(${text})`;
 }
 
 const EMPTY_RESULT: SanityCheckResult = {
