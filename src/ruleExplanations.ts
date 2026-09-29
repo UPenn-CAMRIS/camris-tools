@@ -15,11 +15,15 @@ const VIOLATION_DESCRIPTIONS: Record<
 > = {
   industryBilledAsGovernment: {
     description:
-      "A Dogfish event for the protocol was billed at a non-industry MRI rate, but CAMS marks the protocol as industry-sponsored — industry-funded work may have been billed at the cheaper government/academic rate. An event billed at the external rate, Human MRI (industry/external), is never flagged here: that rate serves external users whether or not they are industry, and every external event is listed on the Human MRI (Industry/External) Events table for review.",
+      'A Dogfish event for the protocol was billed at a non-industry MRI rate, but CAMS ("Industry Sponsored" is "Yes") or REDCap (an industry funding type), or both, mark the protocol as industry-sponsored — industry-funded work may have been billed at the cheaper government/academic rate. Disagreeing Source names which. An event billed at the external rate, Human MRI (industry/external), is never flagged here: that rate serves external users whether or not they are industry, and every external event is listed on the Human MRI (Industry/External) Events table for review.',
   },
   governmentBilledAsIndustry: {
     description:
-      "A Dogfish event was billed under an industry MRI service code, but CAMS does not mark the protocol as industry-sponsored — non-industry work may have been billed at the more expensive industry rate.",
+      "A Dogfish event was billed under an industry MRI service code, but CAMS or REDCap, or both, say the protocol is not industry-sponsored — non-industry work may have been billed at the more expensive industry rate. Disagreeing Source names which. A study that REDCap marks as a CHOP study (the PI's school is CHOP) is never flagged here, because a non-industry CHOP study is billed Human MRI (Industry/CHOP).",
+  },
+  chopBilledAsStandard: {
+    description:
+      "REDCap marks the protocol as a CHOP study (the PI's school is CHOP), but the event was billed at the standard Human MRI rate. A CHOP study is billed Human MRI (Industry/CHOP), so the scan may have been billed at too low a rate.",
   },
   animalBilledAsHuman: {
     description:
@@ -39,11 +43,11 @@ const VIOLATION_DESCRIPTIONS: Record<
   },
   stimulusBilledAsGovernment: {
     description:
-      `Dogfish billed the standard Stimulus/Response Equipment fee, but CAMS marks the protocol as industry-sponsored — the fee should have carried the "(Ind)" industry rate. Only scans on or after ${INDUSTRY_FEE_RATE_START} are checked, because the industry rate did not exist before then.`,
+      `Dogfish billed the standard Stimulus/Response Equipment fee, but CAMS or REDCap, or both, mark the protocol as industry-sponsored — the fee should have carried the "(Ind)" industry rate. Disagreeing Source names which. Only scans on or after ${INDUSTRY_FEE_RATE_START} are checked, because the industry rate did not exist before then.`,
   },
   stimulusBilledAsIndustry: {
     description:
-      'Dogfish billed the Stimulus/Response Equipment fee at the "(Ind)" industry rate, but CAMS does not mark the protocol as industry-sponsored — the fee should have carried the standard rate.',
+      'Dogfish billed the Stimulus/Response Equipment fee at the "(Ind)" industry rate, but CAMS or REDCap, or both, say the protocol is not industry-sponsored — the fee should have carried the standard rate. Disagreeing Source names which. This includes CHOP studies, which pay the standard fee.',
   },
   neuroreaderBillingMissed: {
     description:
@@ -55,11 +59,11 @@ const VIOLATION_DESCRIPTIONS: Record<
   },
   neuroreaderBilledAsGovernment: {
     description:
-      `Dogfish billed the standard Research Report Reader (Neuroreader) fee, but CAMS marks the protocol as industry-sponsored — the fee should have carried the "(Industry)" rate. Only scans on or after ${INDUSTRY_FEE_RATE_START} are checked, because the industry rate did not exist before then.`,
+      `Dogfish billed the standard Research Report Reader (Neuroreader) fee, but CAMS or REDCap, or both, mark the protocol as industry-sponsored — the fee should have carried the "(Industry)" rate. Disagreeing Source names which. Only scans on or after ${INDUSTRY_FEE_RATE_START} are checked, because the industry rate did not exist before then.`,
   },
   neuroreaderBilledAsIndustry: {
     description:
-      'Dogfish billed the Research Report Reader (Neuroreader) fee at the "(Industry)" rate, but CAMS does not mark the protocol as industry-sponsored — the fee should have carried the standard rate.',
+      'Dogfish billed the Research Report Reader (Neuroreader) fee at the "(Industry)" rate, but CAMS or REDCap, or both, say the protocol is not industry-sponsored — the fee should have carried the standard rate. Disagreeing Source names which. This includes CHOP studies, which pay the standard fee.',
   },
   neuroreaderAtStellarChance: {
     description:
@@ -75,7 +79,7 @@ export const VIOLATION_RULE_EXPLANATIONS: RuleExplanation[] = [
   {
     label: "Disagreeing Source",
     description:
-      'The data that disagrees with what Dogfish billed. "CAMS": whether CAMS marks the protocol as industry-sponsored. "REDCap letter": the fees that the protocol\'s approved REDCap review letter includes. "Protocol format": whether the protocol number matches the animal-protocol format ("AR" followed by 6 digits). "Scanner": the scanner the event was on.',
+      'The data that disagrees with what Dogfish billed. For the industry/government rate checks: "CAMS" (CAMS marks the protocol industry-sponsored, or not), "REDCap" (the protocol\'s REDCap funding type is an industry code, or not), or "CAMS + REDCap" when both disagree. When both disagree, CAMS and REDCap agree with each other and only the billing differs. When only one disagrees, CAMS and REDCap contradict each other, so the fix may belong in that source\'s data rather than in the billing. A source with no answer (no record, or a blank REDCap funding type) never disagrees. For the other checks: "REDCap" (the PI\'s school, for a CHOP study), "REDCap letter" (the fees that the approved REDCap review letter includes), "Protocol format" (whether the protocol number matches the animal-protocol format, "AR" followed by 6 digits), or "Scanner" (the scanner the event was on).',
   },
 ];
 
@@ -83,12 +87,17 @@ export const MISMATCH_RULE_EXPLANATIONS: RuleExplanation[] = [
   {
     label: "No CAMS Match",
     description:
-      "The event's protocol number could not be found in the CAMS data. The checks that compare a billed rate against CAMS sponsorship — Industry Billed As Government, Government Billed As Industry, and the Stimulus and Neuroreader Billed As Government / Billed As Industry fee-rate checks — were skipped for this event. Every other check — Stimulus and Neuroreader billing missed/extra, Animal/Human Billed As, Neuroreader Billed At Stellar Chance — still ran normally, and any violations they found still appear on the Violations tables above. If this row shows no violations, that means those other checks ran and found none, not that nothing was checked.",
+      "The event's protocol number could not be found in the CAMS data, so CAMS had no answer for the checks that compare a billed rate with industry sponsorship: industry/government billed as (MRI), and the Stimulus and Neuroreader billed as government/industry fee checks. Those checks still ran against REDCap when the protocol has an active REDCap record with a funding type, and were skipped only when it has neither. Every other check ran normally, and any violations found still appear on the Violations tables above. If this row shows no violations, that means the checks that could run found none, not that nothing was checked.",
   },
   {
     label: "No Active REDCap Match",
     description:
-      'No REDCap record with a completed review letter ("camris_review_letter_complete" = Complete) was found for this protocol. The four Stimulus and Neuroreader billing missed/extra checks need an active REDCap record, so only those were skipped for this event. Every other check — Industry/Government Billed As (including the Stimulus and Neuroreader fee-rate checks, which use CAMS only), Animal/Human Billed As, Neuroreader Billed At Stellar Chance — still ran normally, and any violations they found still appear on the Violations tables above. This is expected for animal protocols, which REDCap does not track, so it does not by itself indicate a problem.',
+      'No REDCap record with a completed review letter ("camris_review_letter_complete" = Complete) was found for this protocol. The four Stimulus and Neuroreader billing missed/extra checks and the CHOP check need an active REDCap record, so they were skipped for this event, and the industry/government rate checks ran against CAMS alone. Every other check ran normally, and any violations found still appear on the Violations tables above. This is expected for animal protocols, which REDCap does not track, so it does not by itself indicate a problem.',
+  },
+  {
+    label: "No REDCap Funding Type",
+    description:
+      'The protocol has an active REDCap record, but its funding type ("funding_type") is blank, so REDCap has no answer on whether the protocol is industry-sponsored. The industry/government rate checks ran against CAMS alone. Filling in the funding type in REDCap lets both sources be compared.',
   },
   {
     label: "Invalid Protocol Format",

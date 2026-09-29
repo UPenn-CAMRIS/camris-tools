@@ -1,6 +1,7 @@
 import { strict as assert } from "node:assert";
 import type { CsvRow } from "../src/parseCsv";
-import { runAudit, INDUSTRY_FEE_RATE_START } from "../src/audit";
+import { runAudit, INDUSTRY_FEE_RATE_START, VIOLATION_ISSUES } from "../src/audit";
+import type { ViolationRow } from "../src/types";
 import { runSanityChecks, FILE_SCHEMAS } from "../src/sanityChecks";
 
 /**
@@ -47,11 +48,11 @@ function camsRow(protocol: string, industrySponsored: string): CsvRow {
   return { "Protocol Number": protocol, "Industry Sponsored": industrySponsored };
 }
 
-/** The names of the boolean columns that are `true` on a violation row. */
-function trueFlags(row: object): string[] {
-  return Object.entries(row)
-    .filter(([, value]) => value === true)
-    .map(([key]) => key)
+/** The names of the checks that flagged a violation row: a boolean check
+ * that is `true`, or a rate check that names a disagreeing source. */
+function trueFlags(row: Partial<ViolationRow>): string[] {
+  return VIOLATION_ISSUES.filter(({ flag }) => row[flag])
+    .map(({ flag }) => flag)
     .sort();
 }
 

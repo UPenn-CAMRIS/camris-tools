@@ -11,12 +11,14 @@ import type {
   ComputedFlags,
   DedupedMismatchRow,
   DisagreeingSource,
+  FixedSourceViolationFlag,
   HumanMriExternalEventRow,
   LateCancellationRow,
   MismatchRow,
   NoShowOnProdevRow,
   ProdevConsistencyRow,
   ProtocolIssueRow,
+  RateDisagreement,
   RedcapNameCollision,
   ScannerEventRow,
   ServiceFlags,
@@ -80,21 +82,26 @@ const HUMAN_MRI_EXTERNAL_SERVICES = new Set(
 );
 const STELLAR_CHANCE_SCANNERS = new Set(["SC3T", "SC7T"]);
 
-// The issue name and disagreeing source for each ViolationRow flag. The
-// Record type makes the compiler reject a ViolationRow boolean flag with
-// no entry here, so a new flag cannot silently drop out of the tables.
-// The entry order is the order issues appear in, everywhere.
-const VIOLATION_ISSUE_DEFINITIONS: Record<
-  ViolationFlag,
-  { issue: string; source: DisagreeingSource }
-> = {
+// The issue name for each ViolationRow flag, and the disagreeing source
+// of each check that has a fixed one. A rate check has no fixed source:
+// its ViolationRow value names the sources that disagree. The mapped type
+// makes the compiler reject a flag with no entry here, so a new flag
+// cannot silently drop out of the tables, and a fixed-source flag with
+// no source. The entry order is the order issues appear in, everywhere.
+const VIOLATION_ISSUE_DEFINITIONS: {
+  [F in ViolationFlag]: F extends FixedSourceViolationFlag
+    ? { issue: string; source: DisagreeingSource }
+    : { issue: string };
+} = {
   industryBilledAsGovernment: {
     issue: "Industry billed as government (MRI)",
-    source: "CAMS",
   },
   governmentBilledAsIndustry: {
     issue: "Government billed as industry (MRI)",
-    source: "CAMS",
+  },
+  chopBilledAsStandard: {
+    issue: "CHOP study billed at standard MRI rate",
+    source: "REDCap",
   },
   animalBilledAsHuman: {
     issue: "Animal billed as human",
@@ -114,11 +121,9 @@ const VIOLATION_ISSUE_DEFINITIONS: Record<
   },
   stimulusBilledAsGovernment: {
     issue: "Stimulus billed as government",
-    source: "CAMS",
   },
   stimulusBilledAsIndustry: {
     issue: "Stimulus billed as industry",
-    source: "CAMS",
   },
   neuroreaderBillingMissed: {
     issue: "Neuroreader billing missed",
@@ -130,11 +135,9 @@ const VIOLATION_ISSUE_DEFINITIONS: Record<
   },
   neuroreaderBilledAsGovernment: {
     issue: "Neuroreader billed as government",
-    source: "CAMS",
   },
   neuroreaderBilledAsIndustry: {
     issue: "Neuroreader billed as industry",
-    source: "CAMS",
   },
   neuroreaderAtStellarChance: {
     issue: "Neuroreader billed at Stellar Chance",
@@ -143,11 +146,13 @@ const VIOLATION_ISSUE_DEFINITIONS: Record<
 };
 
 /** Every violation issue, in the order the results tables and the rule
- * explanations list them. The one definition of each issue's name and
- * disagreeing source. */
+ * explanations list them. The one definition of each issue's name and,
+ * for a check with a fixed one, its disagreeing source. */
 export const VIOLATION_ISSUES: ViolationIssue[] = (
   Object.keys(VIOLATION_ISSUE_DEFINITIONS) as ViolationFlag[]
-).map((flag) => ({ flag, ...VIOLATION_ISSUE_DEFINITIONS[flag] }));
+).map(
+  (flag) => ({ flag, ...VIOLATION_ISSUE_DEFINITIONS[flag] }) as ViolationIssue
+);
 
 // Dogfish and CAMS protocol numbers use one of three formats:
 // - a 6-digit number, optionally followed by a suffix such as "_7X"
@@ -629,10 +634,32 @@ function buildNoShowsOnProdevProtocols(
 interface RedcapRecord {
   neuroreader: boolean;
   stimulus: boolean;
+  /** Whether REDCap's funding type is an industry code. `undefined` when
+   * the funding type is blank, so REDCap cannot say. */
+  industry: boolean | undefined;
+  /** Whether the PI's school is CHOP. */
+  chop: boolean;
 }
 
 const REDCAP_REVIEW_LETTER_COMPLETE = "2";
 const REDCAP_CHECKED = "1";
+
+// The funding_type codes that mean industry funding: 1 is "industry" and
+// 4 is "industry funding". Every other code (for example 2, an old code
+// for government) is not industry.
+const REDCAP_INDUSTRY_FUNDING_TYPES = new Set(["1", "4"]);
+
+// The pi_school code for CHOP. A non-industry CHOP study is billed
+// Human MRI (Industry/CHOP), but pays the standard ancillary fees.
+const REDCAP_CHOP_PI_SCHOOL = "4";
+
+/** Whether a REDCap funding_type code means industry funding, or
+ * `undefined` for a blank code. */
+function redcapIndustry(fundingType: string): boolean | undefined {
+  return fundingType === ""
+    ? undefined
+    : REDCAP_INDUSTRY_FUNDING_TYPES.has(fundingType);
+}
 
 export interface RedcapLookupResult {
   lookup: Map<string, RedcapRecord>;
@@ -673,6 +700,8 @@ export function buildRedcapLookup(redcapRows: CsvRow[]): RedcapLookupResult {
     const record: RedcapRecord = {
       neuroreader: field(row, "fees_reviewletter___2") === REDCAP_CHECKED,
       stimulus: field(row, "fees_reviewletter___6") === REDCAP_CHECKED,
+      industry: redcapIndustry(field(row, "funding_type")),
+      chop: field(row, "pi_school") === REDCAP_CHOP_PI_SCHOOL,
     };
 
     for (const name of names) {
@@ -701,6 +730,33 @@ export function buildRedcapLookup(redcapRows: CsvRow[]): RedcapLookupResult {
   return { lookup, collisions };
 }
 
+/** Negates a source's answer, keeping "no answer" (undefined) as is. */
+function not(answer: boolean | undefined): boolean | undefined {
+  return answer === undefined ? undefined : !answer;
+}
+
+/** Names the sources that disagree with the billed rate, for one rate
+ * check. `applies` is whether the event billed the rate this check is
+ * about. `camsDisagrees` and `redcapDisagrees` are whether each source
+ * says that rate is wrong for the protocol, or undefined when that source
+ * has no answer. A source with no answer never disagrees. When neither
+ * source has an answer, the check cannot run, so the result is
+ * undefined and the event lands on the Mismatches table. */
+function rateDisagreement(
+  applies: boolean,
+  camsDisagrees: boolean | undefined,
+  redcapDisagrees: boolean | undefined
+): RateDisagreement | undefined {
+  if (camsDisagrees === undefined && redcapDisagrees === undefined) {
+    return undefined;
+  }
+  if (!applies) return "";
+  if (camsDisagrees && redcapDisagrees) return "CAMS + REDCap";
+  if (camsDisagrees) return "CAMS";
+  if (redcapDisagrees) return "REDCap";
+  return "";
+}
+
 function computeFlags(
   event: DogfishEvent,
   cams: CamsRecord | undefined,
@@ -709,13 +765,25 @@ function computeFlags(
   const { flags, protocolNumberRaw } = event;
   const billedIndustry = flags.humanMRIIndustry || flags.animalMRIIndustry;
   const animalFormat = isAnimalProtocolFormat(protocolNumberRaw);
-  const camsIndustry = cams?.industrySponsored === "Yes";
 
-  // The external MRI rate serves external users, industry or not, so CAMS
-  // sponsorship cannot say whether it is right. An event billed at it is
-  // never flagged as industry billed as government. A person reviews
-  // every external event on the Human MRI (Industry/External) Events
-  // table instead.
+  // Each source's answer to "is this protocol industry-sponsored?", or
+  // undefined when that source has no answer: no CAMS record, or no
+  // REDCap record or a blank REDCap funding type. The CAMS test is the
+  // same one classifyIndustry() applies (see cams.ts).
+  const camsIndustry = cams ? cams.industrySponsored === "Yes" : undefined;
+  const redcapIndustry = redcap?.industry;
+
+  // REDCap is the only source that marks a CHOP study. A non-industry
+  // CHOP study is billed Human MRI (Industry/CHOP), so that rate is not
+  // an error on it. CHOP studies pay the standard ancillary fees, so the
+  // fee checks do not look at this.
+  const chop = redcap?.chop === true;
+
+  // The external MRI rate serves external users, industry or not, so
+  // industry sponsorship cannot say whether it is right. An event billed
+  // at it is never flagged as industry billed as government. A person
+  // reviews every external event on the Human MRI (Industry/External)
+  // Events table instead.
   const billedExternal = flags.humanMRIExternal;
 
   // Either rate of an ancillary fee — the standard service or its
@@ -738,11 +806,22 @@ function computeFlags(
   const atStellarChance = STELLAR_CHANCE_SCANNERS.has(event.scanner);
 
   return {
-    industryBilledAsGovernment: cams
-      ? !billedIndustry && !billedExternal && camsIndustry
-      : undefined,
-    governmentBilledAsIndustry: cams
-      ? billedIndustry && !camsIndustry
+    // The MRI rate should be an industry rate when, and only when, the
+    // protocol is industry-sponsored or a CHOP study. Each rate check
+    // compares the billed rate with CAMS and with REDCap, and names the
+    // sources that disagree (see rateDisagreement).
+    industryBilledAsGovernment: rateDisagreement(
+      !billedIndustry && !billedExternal,
+      camsIndustry,
+      redcapIndustry
+    ),
+    governmentBilledAsIndustry: rateDisagreement(
+      billedIndustry && !chop,
+      not(camsIndustry),
+      not(redcapIndustry)
+    ),
+    chopBilledAsStandard: redcap
+      ? chop && flags.humanMRI && !billedIndustry
       : undefined,
     animalBilledAsHuman:
       (flags.humanMRI ||
@@ -761,33 +840,40 @@ function computeFlags(
       ? stimulusBilled && !redcap.stimulus
       : undefined,
     // An ancillary fee should carry its industry rate when, and only
-    // when, CAMS marks the protocol industry-sponsored. These mirror
+    // when, the protocol is industry-sponsored. These mirror
     // industryBilledAsGovernment / governmentBilledAsIndustry above, but
-    // scoped to the specific fee billed on this event, and need a CAMS
-    // record the same way (no record -> undefined -> the event lands on
-    // the Mismatches table). The industry-rate ancillary flags are
-    // deliberately kept out of billedIndustry (see README) — this pair of
-    // checks is the only place they are read. "Billed as government" is
-    // checked only from INDUSTRY_FEE_RATE_START on; "billed as industry"
-    // has no date limit.
-    stimulusBilledAsGovernment: cams
-      ? flags.stimulus && camsIndustry && industryFeeRateInEffect
-      : undefined,
-    stimulusBilledAsIndustry: cams
-      ? flags.stimulusIndustry && !camsIndustry
-      : undefined,
+    // scoped to the specific fee billed on this event, and without the
+    // CHOP exception. The industry-rate ancillary flags are deliberately
+    // kept out of billedIndustry (see README) — these checks are the
+    // only place they are read. "Billed as government" is checked only
+    // from INDUSTRY_FEE_RATE_START on; "billed as industry" has no date
+    // limit.
+    stimulusBilledAsGovernment: rateDisagreement(
+      flags.stimulus && industryFeeRateInEffect,
+      camsIndustry,
+      redcapIndustry
+    ),
+    stimulusBilledAsIndustry: rateDisagreement(
+      flags.stimulusIndustry,
+      not(camsIndustry),
+      not(redcapIndustry)
+    ),
     neuroreaderBillingMissed: redcap
       ? !readerBilled && redcap.neuroreader && !atStellarChance
       : undefined,
     neuroreaderBillingExtra: redcap
       ? readerBilled && !redcap.neuroreader
       : undefined,
-    neuroreaderBilledAsGovernment: cams
-      ? flags.neuroreader && camsIndustry && industryFeeRateInEffect
-      : undefined,
-    neuroreaderBilledAsIndustry: cams
-      ? flags.neuroreaderIndustry && !camsIndustry
-      : undefined,
+    neuroreaderBilledAsGovernment: rateDisagreement(
+      flags.neuroreader && industryFeeRateInEffect,
+      camsIndustry,
+      redcapIndustry
+    ),
+    neuroreaderBilledAsIndustry: rateDisagreement(
+      flags.neuroreaderIndustry,
+      not(camsIndustry),
+      not(redcapIndustry)
+    ),
     neuroreaderAtStellarChance: event.neuroreaderAtStellarChance,
   };
 }
@@ -798,22 +884,36 @@ function compareNumericText(a: string, b: string): number {
   return a.localeCompare(b, undefined, { numeric: true });
 }
 
-/** Splits each violation into one row per true flag, so that each row is
+/** The disagreeing source of one issue on one event, or undefined when
+ * the event does not have that issue. A check with a fixed source takes
+ * it from its definition; a rate check's value names its sources. */
+function issueSource(
+  violation: ViolationRow,
+  definition: ViolationIssue
+): DisagreeingSource | undefined {
+  if (definition.source !== undefined) {
+    return violation[definition.flag] ? definition.source : undefined;
+  }
+  return violation[definition.flag] || undefined;
+}
+
+/** Splits each violation into one row per flagged check, so that each row is
  * one error on one event. Rows are sorted by Event ID, then by issue in
  * VIOLATION_ISSUES order. */
 function buildViolationIssues(violations: ViolationRow[]): ViolationIssueRow[] {
   const ranked: { row: ViolationIssueRow; rank: number }[] = [];
 
   for (const violation of violations) {
-    VIOLATION_ISSUES.forEach(({ flag, issue, source }, rank) => {
-      if (!violation[flag]) return;
+    VIOLATION_ISSUES.forEach((definition, rank) => {
+      const source = issueSource(violation, definition);
+      if (source === undefined) return;
       ranked.push({
         row: {
           eventId: violation.eventId,
           protocolNumber: violation.protocolNumber,
           scanTime: violation.scanTime,
           scanner: violation.scanner,
-          issue,
+          issue: definition.issue,
           source,
         },
         rank,
@@ -837,7 +937,8 @@ function buildViolationIssues(violations: ViolationRow[]): ViolationIssueRow[] {
 function buildProtocolIssues(violations: ViolationRow[]): ProtocolIssueRow[] {
   interface Group {
     protocolNumber: string;
-    definition: ViolationIssue;
+    issue: string;
+    source: DisagreeingSource;
     rank: number;
     eventIds: Set<string>;
     firstScan: string;
@@ -850,14 +951,22 @@ function buildProtocolIssues(violations: ViolationRow[]): ProtocolIssueRow[] {
 
   for (const violation of violations) {
     VIOLATION_ISSUES.forEach((definition, rank) => {
-      if (!violation[definition.flag]) return;
+      const source = issueSource(violation, definition);
+      if (source === undefined) return;
 
-      const key = JSON.stringify([violation.protocolNumber, definition.flag]);
+      // A rate check's source is part of the key: in principle one
+      // protocol's events could disagree with different sources.
+      const key = JSON.stringify([
+        violation.protocolNumber,
+        definition.flag,
+        source,
+      ]);
       let group = groups.get(key);
       if (!group) {
         group = {
           protocolNumber: violation.protocolNumber,
-          definition,
+          issue: definition.issue,
+          source,
           rank,
           eventIds: new Set(),
           firstScan: "",
@@ -886,8 +995,8 @@ function buildProtocolIssues(violations: ViolationRow[]): ProtocolIssueRow[] {
     )
     .map((group) => ({
       protocolNumber: group.protocolNumber,
-      issue: group.definition.issue,
-      source: group.definition.source,
+      issue: group.issue,
+      source: group.source,
       events: group.eventIds.size,
       firstScan: group.firstScan,
       lastScan: group.lastScan,
@@ -908,21 +1017,11 @@ function dedupeMismatches(mismatches: MismatchRow[]): DedupedMismatchRow[] {
   return [...seen.values()];
 }
 
+/** True when any check flagged the event: a boolean check that is true,
+ * or a rate check that names at least one disagreeing source. */
 function hasAnyViolation(computed: ComputedFlags): boolean {
-  return (
-    computed.industryBilledAsGovernment === true ||
-    computed.governmentBilledAsIndustry === true ||
-    computed.animalBilledAsHuman === true ||
-    computed.humanBilledAsAnimal === true ||
-    computed.stimulusBillingMissed === true ||
-    computed.stimulusBillingExtra === true ||
-    computed.stimulusBilledAsGovernment === true ||
-    computed.stimulusBilledAsIndustry === true ||
-    computed.neuroreaderBillingMissed === true ||
-    computed.neuroreaderBillingExtra === true ||
-    computed.neuroreaderBilledAsGovernment === true ||
-    computed.neuroreaderBilledAsIndustry === true ||
-    computed.neuroreaderAtStellarChance
+  return Object.values(computed).some(
+    (value) => value === true || (typeof value === "string" && value !== "")
   );
 }
 
@@ -948,15 +1047,23 @@ export function runAudit(
 
     const noCamsMatch = !cams;
     const noActiveRedcapMatch = !redcap;
+    const noRedcapFundingType =
+      redcap !== undefined && redcap.industry === undefined;
     const invalidProtocolFormat = !validFormat;
 
-    if (noCamsMatch || noActiveRedcapMatch || invalidProtocolFormat) {
+    if (
+      noCamsMatch ||
+      noActiveRedcapMatch ||
+      noRedcapFundingType ||
+      invalidProtocolFormat
+    ) {
       mismatches.push({
         eventId: event.eventId,
         protocolNumber: event.protocolNumberRaw,
         projectTitle: event.projectTitle,
         noCamsMatch,
         noActiveRedcapMatch,
+        noRedcapFundingType,
         invalidProtocolFormat,
       });
     }
@@ -968,21 +1075,20 @@ export function runAudit(
         protocolNumber: event.protocolNumberRaw,
         scanTime: event.scanTime,
         scanner: event.scanner,
-        industryBilledAsGovernment: computed.industryBilledAsGovernment === true,
-        governmentBilledAsIndustry: computed.governmentBilledAsIndustry === true,
+        industryBilledAsGovernment: computed.industryBilledAsGovernment ?? "",
+        governmentBilledAsIndustry: computed.governmentBilledAsIndustry ?? "",
+        chopBilledAsStandard: computed.chopBilledAsStandard === true,
         animalBilledAsHuman: computed.animalBilledAsHuman,
         humanBilledAsAnimal: computed.humanBilledAsAnimal,
         stimulusBillingMissed: computed.stimulusBillingMissed === true,
         stimulusBillingExtra: computed.stimulusBillingExtra === true,
-        stimulusBilledAsGovernment:
-          computed.stimulusBilledAsGovernment === true,
-        stimulusBilledAsIndustry: computed.stimulusBilledAsIndustry === true,
+        stimulusBilledAsGovernment: computed.stimulusBilledAsGovernment ?? "",
+        stimulusBilledAsIndustry: computed.stimulusBilledAsIndustry ?? "",
         neuroreaderBillingMissed: computed.neuroreaderBillingMissed === true,
         neuroreaderBillingExtra: computed.neuroreaderBillingExtra === true,
         neuroreaderBilledAsGovernment:
-          computed.neuroreaderBilledAsGovernment === true,
-        neuroreaderBilledAsIndustry:
-          computed.neuroreaderBilledAsIndustry === true,
+          computed.neuroreaderBilledAsGovernment ?? "",
+        neuroreaderBilledAsIndustry: computed.neuroreaderBilledAsIndustry ?? "",
         neuroreaderAtStellarChance: computed.neuroreaderAtStellarChance,
       });
     }

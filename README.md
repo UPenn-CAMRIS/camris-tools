@@ -27,7 +27,8 @@ Upload three CSV exports for the same period:
 - **Dogfish Events** — the scanner billing/event log
 - **CAMS Data** — fund and industry-sponsorship data per protocol
 - **REDCap Export** — CAMRIS application/review data, including which fees a
-  protocol's approved review letter authorizes
+  protocol's approved review letter authorizes, its funding type, and the
+  PI's school
 
 If a file has malformed rows (e.g. an unescaped quote inside a field), parsing
 still continues on a best-effort basis, and an expandable box appears under
@@ -42,11 +43,18 @@ The tool matches events to their protocol's CAMS and REDCap records (by a
 normalized protocol number) and flags:
 
 - Industry-sponsored protocols billed at the government rate, and vice versa.
+  Industry sponsorship comes from two sources, CAMS and REDCap (see
+  [Two sources for industry sponsorship](#two-sources-for-industry-sponsorship)),
+  and each flag names the source that disagrees with the billing, or both.
   An event billed at the external rate, `Human MRI (industry/external)`, is
   never flagged as industry billed at the government rate: that rate serves
   external users whether or not they are industry, and every external event
   is listed for review instead (see the Human MRI (Industry/External) Events
-  table).
+  table). A study that REDCap marks as CHOP (the PI's school) is never
+  flagged as government billed as industry, because a non-industry CHOP
+  study is billed `Human MRI (Industry/CHOP)`.
+- A CHOP study billed at the standard `Human MRI` rate instead of
+  `Human MRI (Industry/CHOP)`
 - Animal protocols billed under a human MRI service code, and vice versa
 - Stimulus/Response Equipment or Neuroreader (Research Report Reader) fees that
   were billed but not approved, or approved but never billed. An approved
@@ -57,8 +65,9 @@ normalized protocol number) and flags:
   on an industry-sponsored protocol, or at the industry rate
   (`Stimulus/Response Equipment Usage Fee (Ind)`,
   `Research Report Reader Fee (Industry)`) on one that isn't — the same
-  rate-vs-sponsorship check applied to Human MRI, applied to these ancillary
-  fees. The industry fee rates took effect on 1 July 2026
+  rate-vs-sponsorship check applied to Human MRI, with the same two sources,
+  applied to these ancillary fees. CHOP studies pay the standard fees. The
+  industry fee rates took effect on 1 July 2026
   (`INDUSTRY_FEE_RATE_START` in `audit.ts`), so a standard fee on an
   industry-sponsored protocol is flagged only for scans on or after that
   date.
@@ -85,14 +94,17 @@ each results table in the app itself.
    example, "51 errors across 42 events".
 
    In both tables, Disagreeing Source names the data that disagrees with
-   what Dogfish billed: `CAMS` (industry sponsorship), `REDCap letter` (the
-   fees the approved review letter includes), `Protocol format` (the animal
-   `AR` protocol-number format), or `Scanner` (Stellar Chance). Rows are
+   what Dogfish billed: `CAMS`, `REDCap`, or `CAMS + REDCap` (industry
+   sponsorship, for the rate checks; `REDCap` also for a CHOP study),
+   `REDCap letter` (the fees the approved review letter includes),
+   `Protocol format` (the animal `AR` protocol-number format), or `Scanner`
+   (Stellar Chance). Rows are
    sorted by Event ID or protocol number, then in the fixed order of the
    issues. The CSV export has exactly the columns shown on screen.
 3. **Mismatches** — protocols that couldn't be fully checked because they
    weren't found in CAMS, weren't found in an active ("Complete") REDCap
-   review, or have a protocol number that doesn't match an expected format.
+   review, have an active REDCap review with a blank funding type, or have
+   a protocol number that doesn't match an expected format.
    Deduped to one row per protocol. (Animal protocols showing "no active
    REDCap match" is expected — REDCap only tracks human IRB applications.)
 4. **Prodev Naming Consistency** — events where a Prodev Tier 1/2 service and
@@ -332,6 +344,37 @@ record whose "Industry Sponsored" is exactly `"Yes"`; `"No"`, `"Not
 Reported"`, and blank all read as not industry; no CAMS record at all is
 neither — the caller decides what to do with that (the audit lists it as a
 mismatch, and so does contrast). Do not fork this logic into either tool.
+
+### Two sources for industry sponsorship
+
+The audit's rate checks also ask REDCap, as a second source. This does not
+fork the CAMS test: CAMS still answers the way `classifyIndustry()` does,
+and the Contrast Injection Tool still uses CAMS alone. REDCap says a
+protocol is industry when its `funding_type` is 1 ("industry") or 4
+("industry funding"); every other code, including the old government code
+2, is not industry, and a blank code is no answer
+(`REDCAP_INDUSTRY_FUNDING_TYPES` in `audit.ts`).
+
+Each rate check compares the billed rate with both answers, and records
+which sources disagree: `CAMS`, `REDCap`, or `CAMS + REDCap`
+(`RateDisagreement` in `types.ts`). When both disagree, the two sources
+agree with each other and only the billing differs. When only one does,
+CAMS and REDCap contradict each other, so the fix may belong in that
+source's data rather than in the billing. A source with no answer never
+disagrees, and a check with neither answer does not run. REDCap never
+overrides CAMS; it is reported beside it.
+
+REDCap is also the only source that marks a CHOP study: `pi_school` 4
+(`REDCAP_CHOP_PI_SCHOOL`). A non-industry CHOP study is billed
+`Human MRI (Industry/CHOP)` but pays the standard ancillary fees, so only
+the MRI rate checks look at it.
+
+CAMS also has "Dogfish Scan Rate" and "PBR Scan Rate" columns. Do not use
+either one to check the billed rate. "Dogfish Scan Rate" comes from the
+same database as the Dogfish billing, so comparing the two checks the data
+against itself. "PBR Scan Rate" does not match Dogfish's rates: many
+industry protocols that Dogfish bills `Human MRI (Industry/CHOP)` show
+`Human MRI (industry/external)` there.
 
 ### A protocol number has one normalized form, but REDCap can give it several names
 

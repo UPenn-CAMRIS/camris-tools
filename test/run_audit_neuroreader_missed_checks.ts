@@ -1,6 +1,7 @@
 import { strict as assert } from "node:assert";
 import type { CsvRow } from "../src/parseCsv";
-import { runAudit } from "../src/audit";
+import { runAudit, VIOLATION_ISSUES } from "../src/audit";
+import type { ViolationRow } from "../src/types";
 
 /**
  * Focused checks for the Neuroreader Billing Missed rule: an approved
@@ -45,11 +46,11 @@ function redcapRow(
   };
 }
 
-/** The names of the boolean columns that are `true` on a violation row. */
-function trueFlags(row: object): string[] {
-  return Object.entries(row)
-    .filter(([, value]) => value === true)
-    .map(([key]) => key)
+/** The names of the checks that flagged a violation row: a boolean check
+ * that is `true`, or a rate check that names a disagreeing source. */
+function trueFlags(row: Partial<ViolationRow>): string[] {
+  return VIOLATION_ISSUES.filter(({ flag }) => row[flag])
+    .map(({ flag }) => flag)
     .sort();
 }
 

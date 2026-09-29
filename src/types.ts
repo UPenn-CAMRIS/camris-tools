@@ -14,75 +14,101 @@ export interface ServiceFlags {
   neuroreaderIndustry: boolean;
 }
 
+/** Which sources disagree with the rate Dogfish billed, for a check that
+ * compares the billed rate with industry sponsorship. CAMS says a
+ * protocol is industry when "Industry Sponsored" is "Yes"; REDCap says so
+ * when the protocol's funding type is an industry code. "" means no
+ * source disagrees (or the check does not apply to the event). When both
+ * sources disagree, they agree with each other and only the billing
+ * differs. When one does, CAMS and REDCap contradict each other, so the
+ * fix may belong in the source data rather than the billing. */
+export type RateDisagreement = "" | "CAMS" | "REDCap" | "CAMS + REDCap";
+
 export interface ViolationRow {
   eventId: string;
   protocolNumber: string;
   scanTime: string;
   scanner: string;
-  industryBilledAsGovernment: boolean;
-  governmentBilledAsIndustry: boolean;
+  industryBilledAsGovernment: RateDisagreement;
+  governmentBilledAsIndustry: RateDisagreement;
+  chopBilledAsStandard: boolean;
   animalBilledAsHuman: boolean;
   humanBilledAsAnimal: boolean;
   stimulusBillingMissed: boolean;
   stimulusBillingExtra: boolean;
-  stimulusBilledAsGovernment: boolean;
-  stimulusBilledAsIndustry: boolean;
+  stimulusBilledAsGovernment: RateDisagreement;
+  stimulusBilledAsIndustry: RateDisagreement;
   neuroreaderBillingMissed: boolean;
   neuroreaderBillingExtra: boolean;
-  neuroreaderBilledAsGovernment: boolean;
-  neuroreaderBilledAsIndustry: boolean;
+  neuroreaderBilledAsGovernment: RateDisagreement;
+  neuroreaderBilledAsIndustry: RateDisagreement;
   neuroreaderAtStellarChance: boolean;
 }
 
 /**
- * On a boolean-ish field, `undefined` means the check was not computed.
- * This happens when the source data needed for the check is missing.
- * `undefined` does not mean `false`. `false` means the check ran and found
- * no violation.
+ * On a field, `undefined` means the check was not computed. This happens
+ * when the source data needed for the check is missing: for a rate check,
+ * both CAMS and REDCap. `undefined` does not mean `false` or "". Those
+ * mean the check ran and found no violation.
  *
- * ViolationRow only ever holds `true` or `false` values. If any field
- * would be `undefined`, the audit cannot conclusively flag that row as a
- * violation. The row appears on the mismatch report instead.
+ * ViolationRow never holds `undefined`. If a field would be `undefined`,
+ * the audit cannot conclusively flag that row as a violation. The row
+ * appears on the mismatch report instead.
  */
 export interface ComputedFlags {
-  industryBilledAsGovernment: boolean | undefined;
-  governmentBilledAsIndustry: boolean | undefined;
+  industryBilledAsGovernment: RateDisagreement | undefined;
+  governmentBilledAsIndustry: RateDisagreement | undefined;
+  chopBilledAsStandard: boolean | undefined;
   animalBilledAsHuman: boolean;
   humanBilledAsAnimal: boolean;
   stimulusBillingMissed: boolean | undefined;
   stimulusBillingExtra: boolean | undefined;
-  stimulusBilledAsGovernment: boolean | undefined;
-  stimulusBilledAsIndustry: boolean | undefined;
+  stimulusBilledAsGovernment: RateDisagreement | undefined;
+  stimulusBilledAsIndustry: RateDisagreement | undefined;
   neuroreaderBillingMissed: boolean | undefined;
   neuroreaderBillingExtra: boolean | undefined;
-  neuroreaderBilledAsGovernment: boolean | undefined;
-  neuroreaderBilledAsIndustry: boolean | undefined;
+  neuroreaderBilledAsGovernment: RateDisagreement | undefined;
+  neuroreaderBilledAsIndustry: RateDisagreement | undefined;
   neuroreaderAtStellarChance: boolean;
 }
 
-/** The ViolationRow fields that each hold one violation check's result:
- * every boolean field. A new boolean field on ViolationRow is a new
- * flag, and VIOLATION_ISSUES in audit.ts must then define its issue. */
-export type ViolationFlag = {
+/** The ViolationRow fields whose check has one fixed source: every
+ * boolean field. */
+export type FixedSourceViolationFlag = {
   [K in keyof ViolationRow]: ViolationRow[K] extends boolean ? K : never;
 }[keyof ViolationRow];
 
+/** The ViolationRow fields that compare the billed rate with industry
+ * sponsorship, and name the sources that disagree: every
+ * RateDisagreement field. */
+export type RateViolationFlag = {
+  [K in keyof ViolationRow]: ViolationRow[K] extends RateDisagreement
+    ? K
+    : never;
+}[keyof ViolationRow];
+
+/** The ViolationRow fields that each hold one violation check's result.
+ * A new such field is a new flag, and VIOLATION_ISSUES in audit.ts must
+ * then define its issue. */
+export type ViolationFlag = FixedSourceViolationFlag | RateViolationFlag;
+
 /** The data that disagrees with what Dogfish billed, for one violation
- * issue: CAMS industry sponsorship, the protocol number's animal or human
- * format, the fees on the approved REDCap review letter, or the scanner
+ * issue: CAMS and/or REDCap industry sponsorship (for a rate check), the
+ * protocol number's animal or human format, the fees on the approved
+ * REDCap review letter, REDCap's record of a CHOP study, or the scanner
  * the event ran on. */
 export type DisagreeingSource =
-  | "CAMS"
+  | Exclude<RateDisagreement, "">
   | "Protocol format"
   | "REDCap letter"
   | "Scanner";
 
-/** One violation check, as the results tables name it. */
-export interface ViolationIssue {
-  flag: ViolationFlag;
-  issue: string;
-  source: DisagreeingSource;
-}
+/** One violation check, as the results tables name it. A check with a
+ * fixed source carries it here. A rate check does not: its source comes
+ * from the event's RateDisagreement value. */
+export type ViolationIssue =
+  | { flag: FixedSourceViolationFlag; issue: string; source: DisagreeingSource }
+  | { flag: RateViolationFlag; issue: string; source?: undefined };
 
 /** One violation on one Dogfish event: one row for each true flag on a
  * ViolationRow. An event with two violations gets two rows, with its
@@ -117,6 +143,9 @@ export interface MismatchRow {
   projectTitle: string;
   noCamsMatch: boolean;
   noActiveRedcapMatch: boolean;
+  /** The protocol has an active REDCap record, but its funding type is
+   * blank, so REDCap cannot say whether it is industry-sponsored. */
+  noRedcapFundingType: boolean;
   invalidProtocolFormat: boolean;
 }
 
