@@ -1,11 +1,12 @@
-import type { Column } from "./csvExport";
+import { shownColumns, type Column } from "./csvExport";
 
 export function renderTable<T>(
   containerId: string,
-  columns: Column<T>[],
+  allColumns: Column<T>[],
   rows: T[],
   emptyMessage: string
 ): void {
+  const columns = shownColumns(allColumns);
   const container = document.getElementById(containerId)!;
   container.innerHTML = "";
 

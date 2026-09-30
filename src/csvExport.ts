@@ -14,6 +14,14 @@ export interface Column<T> {
   /** An action on screen, such as a remove button, not data: the CSV
    * export leaves the column out. */
   screenOnly?: boolean;
+  /** When this returns false, the column is left out, both on screen and
+   * in the CSV export, so the two still match. */
+  shown?: () => boolean;
+}
+
+/** The columns `shown` does not leave out. */
+export function shownColumns<T>(columns: Column<T>[]): Column<T>[] {
+  return columns.filter((c) => c.shown?.() ?? true);
 }
 
 /** A cell value as the CSV export writes it. */
@@ -22,7 +30,7 @@ export function csvField(value: string | boolean): string {
 }
 
 export function toCsv<T>(columns: Column<T>[], rows: T[]): string {
-  const data = columns.filter((c) => !c.screenOnly);
+  const data = shownColumns(columns).filter((c) => !c.screenOnly);
   return Papa.unparse({
     fields: data.map((c) => c.header),
     data: rows.map((row) => data.map((c) => csvField(c.get(row)))),

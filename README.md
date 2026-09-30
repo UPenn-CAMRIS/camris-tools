@@ -251,9 +251,10 @@ A new audit can be compared with a previous one: upload its saved zip in the
 optional **Previous Audit** slot, or click **Start next audit from this one**
 on an audit that is open (`previousAudit.ts`). Then:
 
-- The four decision tables get a **This Audit** column: `New`,
+- The four decision tables get a **Since Previous Audit** column: `New`,
   `Flagged again`, `Flagged again, source changed (was CAMS)` (Violations by
-  Protocol), or `Flagged again (marked Fix on 2026-08-29)`.
+  Protocol), or `Flagged again (marked Fix on 2026-08-29)`. Without a
+  previous audit the column is left out, on screen and in the CSV files.
 - A previous **Don't fix** is filled in on a row flagged again, as
   `Don't fix (unconfirmed)`, with its original reason, Decided By, and
   Decided On. Every one needs a reviewer to click **Confirm** in this
@@ -408,8 +409,9 @@ src/
                          each table and the decision CSV columns
   decisionUi.ts          the editable decision cells in the results tables
   savedAudit.ts          builds and reads the saved-audit zip and its manifest
-  previousAudit.ts       compares an audit with a previous one: This Audit
-                         labels, carried decisions, earlier decisions
+  previousAudit.ts       compares an audit with a previous one: Since
+                         Previous Audit labels, carried decisions, earlier
+                         decisions
   csvExport.ts           generic CSV export + download
   ruleExplanations.ts    plain-English descriptions shown under each table
   types.ts               shared type definitions

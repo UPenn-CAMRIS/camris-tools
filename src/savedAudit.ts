@@ -19,9 +19,10 @@ import type { CsvRow, RowCorrection } from "./parseCsv";
  * again does not need the previous one's file.
  */
 export const SAVED_AUDIT_FORMAT = "camris-audit";
-/** 2 added the previous audit, the This Audit and Confirmed By columns,
- * and the earlier-decisions CSV. This version opens files of versions 1
- * and 2. */
+/** 2 added the previous audit, the Since Previous Audit column (headed
+ * "This Audit" in files saved before it was renamed; nothing reads it
+ * back), the Confirmed By column, and the earlier-decisions CSV. This
+ * version opens files of versions 1 and 2. */
 export const SAVED_AUDIT_FORMAT_VERSION = 2;
 
 export type AuditInputKey = "dogfish" | "cams" | "redcap";

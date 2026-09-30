@@ -21,8 +21,8 @@ import {
 /**
  * A previous audit, used for reference when starting a new one:
  *
- * - Each row of the four decision tables gets a This Audit label that
- *   compares it with the previous audit (THIS_AUDIT).
+ * - Each row of the four decision tables gets a Since Previous Audit
+ *   label that compares it with the previous audit (SINCE_PREVIOUS).
  * - A previous "Don't fix" is filled in on a row flagged again, and needs
  *   a reviewer to confirm it in this audit (carryDecisions).
  * - A previous "Fix" is never filled in; its row's label says so.
@@ -35,9 +35,9 @@ export const DECISION_TABLE_IDS = Object.keys(
   DECISION_TABLE_LABELS
 ) as DecisionTableId[];
 
-/** The This Audit column's texts. A row flagged again can add a note in
- * parentheses; see flaggedAgainLabel. */
-export const THIS_AUDIT = {
+/** The Since Previous Audit column's texts. A row flagged again can add
+ * a note in parentheses; see flaggedAgainLabel. */
+export const SINCE_PREVIOUS = {
   new: "New",
   flaggedAgain: "Flagged again",
   /** The previous audit flagged it, and this upload covers the scans it
@@ -252,15 +252,15 @@ export function keyCellsFromDetails(
   ];
 }
 
-/** The This Audit label of a row flagged in this audit, whose previous
- * entry is `entry`, and whose Disagreeing Source is `source` (undefined in
- * a table without one). */
+/** The Since Previous Audit label of a row flagged in this audit, whose
+ * previous entry is `entry`, and whose Disagreeing Source is `source`
+ * (undefined in a table without one). */
 export function flaggedAgainLabel(
   entry: PreviousEntry | undefined,
   source: string | undefined
 ): string {
-  if (!entry) return THIS_AUDIT.new;
-  let label: string = THIS_AUDIT.flaggedAgain;
+  if (!entry) return SINCE_PREVIOUS.new;
+  let label: string = SINCE_PREVIOUS.flaggedAgain;
   if (source !== undefined && entry.source !== "" && entry.source !== source) {
     label += `, source changed (was ${entry.source})`;
   }
@@ -272,8 +272,9 @@ export function flaggedAgainLabel(
   return label;
 }
 
-/** The This Audit label of each decision key flagged in this audit. */
-export function thisAuditLabels<T>(
+/** The Since Previous Audit label of each decision key flagged in this
+ * audit. */
+export function sincePreviousLabels<T>(
   table: DecisionTableId,
   rows: T[],
   keyFn: (row: T) => string,
@@ -327,7 +328,7 @@ export interface EarlierDecisionRow {
   table: DecisionTableId;
   key: string;
   keyCells: string[];
-  thisAudit: string;
+  sincePrevious: string;
   decision: Decision;
 }
 
@@ -376,19 +377,19 @@ export function earlierDecisionRows(
       if (!decision || flagged[table].has(key)) continue;
       if (removed.has(removedId(table, entry.keyCells))) continue;
 
-      let thisAudit: string;
+      let sincePrevious: string;
       if (!entry.wasFlagged) {
         if (decision.value !== "Don't fix") continue;
-        thisAudit = THIS_AUDIT.earlier;
+        sincePrevious = SINCE_PREVIOUS.earlier;
       } else {
         const resolved = covers(
           range,
           entry.scanSpan ?? previous.record.dogfishScanRange
         );
         if (decision.value === "Fix" && !resolved) continue;
-        thisAudit = resolved ? THIS_AUDIT.resolved : THIS_AUDIT.outsideDates;
+        sincePrevious = resolved ? SINCE_PREVIOUS.resolved : SINCE_PREVIOUS.outsideDates;
       }
-      rows.push({ table, key, keyCells: entry.keyCells, thisAudit, decision });
+      rows.push({ table, key, keyCells: entry.keyCells, sincePrevious, decision });
     }
   }
   return rows;
@@ -406,7 +407,7 @@ export function earlierDecisionColumns(): Column<EarlierDecisionRow>[] {
       get: (r) => detailsFromKeyCells(r.table, r.keyCells),
       wrap: true,
     },
-    { header: "This Audit", get: (r) => r.thisAudit },
+    { header: "Since Previous Audit", get: (r) => r.sincePrevious },
     ...decisionColumnsOf((r: EarlierDecisionRow) => r.decision),
   ];
 }
