@@ -198,8 +198,10 @@ reason. Running the audit again on the same page keeps the decisions.
 ### Saving an audit
 
 **Save audit (.zip)**, above the results, downloads the whole audit as one
-file, named for the Dogfish scan period and the save date, for example
-`camris_audit_2026-09-01_to_2026-09-29_saved_2026-09-30.zip`
+file, named for the Dogfish scan period and the local date and time it was
+saved (HHMMSS, 24-hour), so two saves on one day get different names, for
+example
+`camris_audit_2026-09-01_to_2026-09-29_saved_2026-09-30_141205.zip`
 (`savedAudit.ts`):
 
 ```
