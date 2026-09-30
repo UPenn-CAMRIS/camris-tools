@@ -69,13 +69,10 @@ console.table(
     code: r.code,
     saysIndustry: r.saysIndustry.join(" + "),
     saysNotIndustry: r.saysNotIndustry.join(" + "),
-    noCams: r.noCamsMatch,
-    noRedcap: r.noActiveRedcapMatch,
-    noFundingType: r.noRedcapFundingType,
     invalidFormat: r.invalidProtocolFormat,
   }))
 );
 
-if (result.rows.some((r) => !r.noDogfishMriMatch)) {
+if (result.rows.some((r) => r.dogfishEventId !== "")) {
   throw new Error("A June contrast row matched a July Dogfish event");
 }

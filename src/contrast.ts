@@ -31,8 +31,8 @@ export type IndustrySource = (typeof INDUSTRY_SOURCES)[number];
 /** One billable contrast injection: a Contrast Report row with a
  * "Procedure-Related Meds" value and a technologist in the CAMRIS
  * Technologists list. The billing-file fields come first, then what each
- * source says about industry sponsorship and the mismatch flags, which
- * are on screen but not in the billing file. */
+ * source says about industry sponsorship, which is on screen but not in
+ * the billing file. */
 export interface ContrastRow {
   date: string;
   event_time: string;
@@ -53,7 +53,6 @@ export interface ContrastRow {
   /** The code the sources point to (see `suggestCode`), or "" when no
    * source has an answer. */
   suggestedCode: ContrastCode | "";
-  technologist: string;
   /** "Procedure-Related Meds": the value that made this a billable row. */
   meds: string;
   /** The Dogfish event matched to this scan (see `matchMriEvent`), or ""
@@ -64,17 +63,14 @@ export interface ContrastRow {
   mriService: string;
   /** The sources that say the protocol is industry sponsored. */
   saysIndustry: IndustrySource[];
-  /** The sources that say it is not. A source with no answer is in
-   * neither list. */
+  /** The sources that say it is not. A source with no answer (no
+   * matching Dogfish MRI event, no CAMS record, no active REDCap record,
+   * or a blank REDCap funding type) is in neither list. */
   saysNotIndustry: IndustrySource[];
   /** REDCap marks the study as CHOP (pi_school 4). */
   chop: boolean;
-  noDogfishMriMatch: boolean;
-  noCamsMatch: boolean;
-  noActiveRedcapMatch: boolean;
-  /** The protocol has an active REDCap record, but its funding type is
-   * blank, so REDCap cannot say whether it is industry sponsored. */
-  noRedcapFundingType: boolean;
+  /** The IRB number is in no expected format (see
+   * `isValidProtocolFormat` in ./audit), as the audit flags it. */
   invalidProtocolFormat: boolean;
 }
 
@@ -256,9 +252,8 @@ export function suggestCode(
  * industry sponsored gets CAMRIS-003: CHOP studies pay the standard
  * ancillary fees, as they do for the Stimulus and Reader fees.
  *
- * Every row carries the audit's mismatch flags (no CAMS match, no active
- * REDCap match, no REDCap funding type, invalid protocol format), plus
- * one for no matching Dogfish MRI event. */
+ * A source with no answer is left out of both of the row's lists of
+ * sources. */
 export function runContrast(
   contrastRows: Record<string, unknown>[],
   technologistRows: Record<string, unknown>[],
@@ -326,7 +321,6 @@ export function runContrast(
       quantity: 1,
       bill: "Y",
       suggestedCode,
-      technologist,
       meds,
       dogfishEventId: mriEvent?.eventId ?? "",
       mriService: mriEvent
@@ -335,10 +329,6 @@ export function runContrast(
       saysIndustry: INDUSTRY_SOURCES.filter((s) => answers[s] === true),
       saysNotIndustry: INDUSTRY_SOURCES.filter((s) => answers[s] === false),
       chop,
-      noDogfishMriMatch: !mriEvent,
-      noCamsMatch: cams === "unknown",
-      noActiveRedcapMatch: !redcap,
-      noRedcapFundingType: redcap !== undefined && redcap.industry === undefined,
       invalidProtocolFormat: !isValidProtocolFormat(irbNumber),
     });
   }

@@ -12,9 +12,10 @@ import { runContrast, suggestCode, type ContrastRow } from "../src/contrast";
  * code. A non-industry CHOP study gets CAMRIS-003, so the Industry/CHOP
  * MRI rate on a CHOP study gives no answer.
  *
- * Also covers the audit's mismatch flags on each row, and how a row is
- * matched to its Dogfish MRI event: same normalized protocol, same date,
- * nearest Scan Time.
+ * Also covers leaving a source with no answer out of both lists, the
+ * audit's Invalid Protocol Format flag, and how a row is matched to its
+ * Dogfish MRI event: same normalized protocol, same date, nearest Scan
+ * Time.
  *
  * Builds the rows inline. Run from `npm test`; it throws on the first
  * failed assertion.
@@ -124,10 +125,6 @@ assert.equal(suggestCode([undefined, undefined, undefined]), "", "no answer");
   assert.deepEqual(row.saysNotIndustry, []);
   assert.equal(row.dogfishEventId, "E1");
   assert.equal(row.mriService, "Human MRI (Industry/CHOP)");
-  assert.equal(row.noDogfishMriMatch, false);
-  assert.equal(row.noCamsMatch, false);
-  assert.equal(row.noActiveRedcapMatch, false);
-  assert.equal(row.noRedcapFundingType, false);
   assert.equal(row.invalidProtocolFormat, false);
 }
 
@@ -154,23 +151,27 @@ assert.equal(suggestCode([undefined, undefined, undefined]), "", "no answer");
 
 // --- Ties -----------------------------------------------------------------
 
-// MRI service against CAMS, no REDCap: the MRI service wins.
+// MRI service against CAMS, no REDCap: the MRI service wins, and REDCap
+// is in neither list.
 {
   const row = contrast("Human MRI", "Yes", "none");
   assert.equal(row.code, "CAMRIS-003");
-  assert.equal(row.noActiveRedcapMatch, true);
+  assert.deepEqual(row.saysIndustry, ["CAMS"]);
+  assert.deepEqual(row.saysNotIndustry, ["MRI service"]);
 }
-// MRI service against REDCap, a blank CAMS answer: the MRI service wins.
+// MRI service against REDCap, no CAMS record: the MRI service wins.
 {
   const row = contrast("Human MRI (Industry/CHOP)", "none", NOT_INDUSTRY);
   assert.equal(row.code, "CAMRIS-051");
-  assert.equal(row.noCamsMatch, true);
+  assert.deepEqual(row.saysIndustry, ["MRI service"]);
+  assert.deepEqual(row.saysNotIndustry, ["REDCap"]);
 }
 // CAMS against REDCap, no Dogfish event: CAMS wins.
 {
   const row = contrast("none", "Yes", NOT_INDUSTRY);
   assert.equal(row.code, "CAMRIS-051");
-  assert.equal(row.noDogfishMriMatch, true);
+  assert.deepEqual(row.saysIndustry, ["CAMS"]);
+  assert.deepEqual(row.saysNotIndustry, ["REDCap"]);
   assert.equal(row.dogfishEventId, "");
   assert.equal(row.mriService, "");
 }
@@ -181,15 +182,14 @@ assert.equal(suggestCode([undefined, undefined, undefined]), "", "no answer");
 
 // --- No answer ------------------------------------------------------------
 
-// No source answers: no code, and every mismatch flag the audit would set.
+// No source answers (no Dogfish event, no CAMS record, a blank REDCap
+// funding type): no code, and both lists are empty.
 {
   const row = contrast("none", "none", { fundingType: "" });
   assert.equal(row.code, "");
   assert.equal(row.suggestedCode, "");
-  assert.equal(row.noDogfishMriMatch, true);
-  assert.equal(row.noCamsMatch, true);
-  assert.equal(row.noActiveRedcapMatch, false);
-  assert.equal(row.noRedcapFundingType, true);
+  assert.deepEqual(row.saysIndustry, []);
+  assert.deepEqual(row.saysNotIndustry, []);
 }
 
 // A blank IRB number matches nothing, and is not a valid format.
@@ -203,9 +203,9 @@ assert.equal(suggestCode([undefined, undefined, undefined]), "", "no answer");
   );
   const row = result.rows[0];
   assert.equal(row.code, "");
-  assert.equal(row.noDogfishMriMatch, true);
-  assert.equal(row.noCamsMatch, true);
-  assert.equal(row.noActiveRedcapMatch, true);
+  assert.deepEqual(row.saysIndustry, []);
+  assert.deepEqual(row.saysNotIndustry, []);
+  assert.equal(row.dogfishEventId, "");
   assert.equal(row.invalidProtocolFormat, true);
 }
 
@@ -260,7 +260,7 @@ for (const service of ["Human MRI (industry/external)", "Human MRI (external)"])
   assert.equal(row.mriService, service);
   assert.deepEqual(row.saysIndustry, ["CAMS"], service);
   assert.deepEqual(row.saysNotIndustry, ["REDCap"], service);
-  assert.equal(row.noDogfishMriMatch, false, service);
+  assert.equal(row.dogfishEventId, "E1", service);
   assert.equal(row.code, "CAMRIS-051", service);
 }
 
@@ -316,7 +316,7 @@ for (const service of ["Human MRI (industry/external)", "Human MRI (external)"])
       dogfishRow("E2", "No Show/Cancellation Fee"),
     ]
   );
-  assert.equal(result.rows[0].noDogfishMriMatch, true);
+  assert.equal(result.rows[0].dogfishEventId, "");
 }
 
 // A contrast row with no exam time cannot be matched to a date.
@@ -328,7 +328,7 @@ for (const service of ["Human MRI (industry/external)", "Human MRI (external)"])
     [],
     [dogfishRow("E1", "Human MRI")]
   );
-  assert.equal(result.rows[0].noDogfishMriMatch, true);
+  assert.equal(result.rows[0].dogfishEventId, "");
 }
 
 // --- The filters are unchanged --------------------------------------------

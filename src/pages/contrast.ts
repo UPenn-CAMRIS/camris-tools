@@ -85,8 +85,8 @@ function sourcesDisagree(row: ContrastRow): boolean {
 // on screen or in Export full table.
 const BILLING_ONLY_HEADERS = new Set(["lab", "sublab", "quantity", "bill"]);
 
-/** The columns after the billing columns: how the code was chosen, and
- * the mismatch flags. On screen, and in Export full table. */
+/** The columns after the billing columns: how the code was chosen. On
+ * screen, and in Export full table. */
 const reviewColumns: Column<ContrastRow>[] = [
   { header: "Suggested Code", get: (r) => r.suggestedCode },
   { header: "Says Industry", get: (r) => r.saysIndustry.join(" + ") },
@@ -94,12 +94,7 @@ const reviewColumns: Column<ContrastRow>[] = [
   { header: "REDCap CHOP", get: (r) => r.chop },
   { header: "Dogfish Event ID", get: (r) => r.dogfishEventId },
   { header: "MRI Service", get: (r) => r.mriService, wrap: true },
-  { header: "No Dogfish MRI Match", get: (r) => r.noDogfishMriMatch },
-  { header: "No CAMS Match", get: (r) => r.noCamsMatch },
-  { header: "No Active REDCap Match", get: (r) => r.noActiveRedcapMatch },
-  { header: "No REDCap Funding Type", get: (r) => r.noRedcapFundingType },
   { header: "Invalid Protocol Format", get: (r) => r.invalidProtocolFormat },
-  { header: "Technologist", get: (r) => r.technologist },
   { header: "Procedure-Related Meds", get: (r) => r.meds, wrap: true },
 ];
 
