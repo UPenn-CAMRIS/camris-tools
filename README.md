@@ -358,7 +358,7 @@ plugin). CI (`.github/workflows/ci.yml`) runs `scripts/check` on each PR.
 ### Development environment (Nix)
 
 The repo ships a Nix flake devShell that pins the tools this project needs
-outside of npm: `gh` (for PRs) and Node 20 (matching CI). With
+outside of npm: `gh` (for PRs) and Node 22 (matching CI). With
 [Nix](https://nixos.org/download) (flakes enabled) and
 [direnv](https://direnv.net) installed:
 
@@ -430,6 +430,11 @@ test/
   run_test_set_1.ts       runs the audit engine against test_set_1/ from Node
   run_contrast_test_set_1.ts  runs the contrast engine against
                               contrast_test_set_1/ from Node
+  run_*_checks.ts         focused checks, one file per feature: each audit
+                          rule, CSV parsing and row corrections, decisions,
+                          saved audits, previous audits, table sorting.
+                          The "test" script in package.json runs every
+                          file; add a new one there too
 test_set_1/              sample CSV data for the Audit Tool
 contrast_test_set_1/     sample data for the Contrast Injection Tool, plus
                           Contrast.jl, the Julia script this tool replaces
