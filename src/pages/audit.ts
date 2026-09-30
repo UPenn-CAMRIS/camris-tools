@@ -1230,10 +1230,7 @@ export function renderAuditPage(
         })),
       },
     });
-    const filename = savedAuditFilename(
-      lastRun.dogfishScanRange,
-      localDate(now)
-    );
+    const filename = savedAuditFilename(lastRun.dogfishScanRange, now);
     // fflate types its output as a view on any buffer, but it is always a
     // plain ArrayBuffer, which is what Blob accepts.
     const bytes = zip as Uint8Array<ArrayBuffer>;

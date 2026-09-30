@@ -185,16 +185,25 @@ export function buildSavedAudit(details: SavedAuditDetails): {
 }
 
 /** The saved audit's download name: the Dogfish scan period it covers,
- * then the date it was saved. For example
- * "camris_audit_2026-09-01_to_2026-09-29_saved_2026-09-30.zip". */
+ * then the local date and time it was saved, to the second, so two saves
+ * on the same day get different names. For example
+ * "camris_audit_2026-09-01_to_2026-09-29_saved_2026-09-30_141205.zip".
+ * The time is HHMMSS, on a 24-hour clock, because a file name cannot
+ * hold colons. */
 export function savedAuditFilename(
   range: ScanRange | null,
-  savedOn: string
+  savedAt: Date
 ): string {
   const period = range
     ? `${range.first.slice(0, 10)}_to_${range.last.slice(0, 10)}_`
     : "";
-  return safeName(`camris_audit_${period}saved_${savedOn}.zip`);
+  const time =
+    pad(savedAt.getHours()) +
+    pad(savedAt.getMinutes()) +
+    pad(savedAt.getSeconds());
+  return safeName(
+    `camris_audit_${period}saved_${localDate(savedAt)}_${time}.zip`
+  );
 }
 
 /** The earliest and latest non-blank Dogfish "Scan Time", compared as
