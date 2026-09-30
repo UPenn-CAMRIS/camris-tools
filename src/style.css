@@ -406,6 +406,12 @@ td.wrap-cell {
   max-width: 320px;
 }
 
+/* A wide table shrinks its wrapping columns to their narrowest, so a long
+   value would wrap onto many short lines without this. */
+td.wide-cell {
+  min-width: 320px;
+}
+
 th {
   position: sticky;
   top: 0;
@@ -423,6 +429,10 @@ th {
 td.bool-true {
   color: var(--ok);
   font-weight: 600;
+}
+
+.skipped-rows:not(:empty) {
+  margin-bottom: 1.25rem;
 }
 
 .empty-note {

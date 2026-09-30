@@ -7,6 +7,9 @@ export interface Column<T> {
    * instead of staying on one line. Useful for long free-text values,
    * such as a project title. */
   wrap?: boolean;
+  /** When true, along with `wrap`, the column is given room for a long
+   * value, so that it wraps onto a few lines instead of many. */
+  wide?: boolean;
   /** Builds this column's cell content on screen, in place of the text
    * from `get`, for a cell the user can edit. `get` still gives the
    * value for the CSV export. */

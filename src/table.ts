@@ -158,6 +158,7 @@ export function renderTable<T>(
         td.textContent = value as string;
       }
       if (col.wrap) classes.push("wrap-cell");
+      if (col.wide) classes.push("wide-cell");
       if (classes.length > 0) td.className = classes.join(" ");
       tr.appendChild(td);
     });
