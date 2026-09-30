@@ -419,6 +419,8 @@ src/
                          each table and the decision CSV columns
   decisionUi.ts          the editable decision cells in the results tables
   savedAudit.ts          builds and reads the saved-audit zip and its manifest
+  restoreAudit.ts        restores a saved audit to open it, or to use it as
+                         a previous audit: inputs, decisions, previous audit
   previousAudit.ts       compares an audit with a previous one: Since
                          Previous Audit labels, carried decisions, earlier
                          decisions
@@ -428,6 +430,8 @@ src/
   style.css
 test/
   run_test_set_1.ts       runs the audit engine against test_set_1/ from Node
+  fixtures/saved-audits/  real saved audits of each format version (see
+                          [Saved-audit fixtures](#saved-audit-fixtures))
   run_contrast_test_set_1.ts  runs the contrast engine against
                               contrast_test_set_1/ from Node
 test_set_1/              sample CSV data for the Audit Tool
@@ -435,8 +439,8 @@ contrast_test_set_1/     sample data for the Contrast Injection Tool, plus
                           Contrast.jl, the Julia script this tool replaces
 ```
 
-`audit.ts`, `contrast.ts`, `cams.ts`, `decisions.ts`, `savedAudit.ts`, and
-`previousAudit.ts` are framework-agnostic (no DOM dependency), which is what lets `npm test`
+`audit.ts`, `contrast.ts`, `cams.ts`, `decisions.ts`, `savedAudit.ts`,
+`restoreAudit.ts`, and `previousAudit.ts` are framework-agnostic (no DOM dependency), which is what lets `npm test`
 exercise both tools' logic from Node without a browser.
 
 ## Design decisions and constraints
@@ -470,14 +474,48 @@ values. For such a change:
   decision value), the reader accepts the old name too, and maps it to the
   new one. A column that nothing reads back (for example Since Previous
   Audit, headed This Audit in older files) can change without this.
-- Add a test that opens a file of each earlier version and checks what it
-  restores.
+- Add a fixture: a real zip saved by the new version, with its
+  expectations (see [Saved-audit fixtures](#saved-audit-fixtures)). Keep the
+  fixtures of every earlier version. Do not change or remove one.
 - If part of an old file cannot be restored, because a rule or table no
   longer exists, open the file and tell the user what was not carried. Do
   not refuse the file.
 
 The tool refuses only a file that is not a saved audit, is damaged, or was
 saved by a newer version of the tool.
+
+#### Saved-audit fixtures
+
+`test/fixtures/saved-audits/` holds real saved audits, each one saved by
+the app build named in its file name (`v<format version>-<commit>.zip`,
+with `-previous` when the audit was started with a previous audit).
+`test/run_saved_audit_fixture_checks.ts` opens each one the way the Audit
+page does (`prepareSavedAudit` in `restoreAudit.ts`), and also as a
+previous audit, and checks the inputs, row corrections, decisions, and
+previous audit it restores. The test fails when a format version up to
+`SAVED_AUDIT_FORMAT_VERSION` has no fixture, or when a zip in the folder
+has no expectations.
+
+The current fixtures are:
+
+- `v1-5b7a243.zip`: the first build that saved audits (#20).
+- `v2-7533f38-previous.zip`: #23, with the v1 file as its previous audit,
+  the comparison column headed This Audit, and one earlier decision
+  removed with the ✕.
+- `v2-4abf5c0.zip` and `v2-4abf5c0-previous.zip`: the build after #24,
+  without and with a previous audit (the #23 file).
+
+The inputs are a few protocols from `test_set_1/`, each with one malformed
+row corrected on the page, and chosen so that each of the four decision
+tables has rows. To add a fixture for a new format version:
+
+1. Build the app at the commit that introduces the version, and run it.
+2. Start a new audit with the same kind of inputs. Correct the malformed
+   rows, open a previous audit (an existing fixture) if the change affects
+   one, and record decisions of each kind: Fix, Don't fix, a confirmed and
+   an unconfirmed carried Don't fix, and a reason with a comma and quotes.
+3. Save the audit, name the zip as above, and add its expectations to
+   `EXPECTED` in the test, from what the page showed.
 
 ### Add a new Dogfish service here, not there
 

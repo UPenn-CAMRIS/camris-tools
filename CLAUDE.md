@@ -47,9 +47,9 @@ this project:
 
 Every saved audit zip that an earlier version of the tool wrote must open in
 every later version, with nothing lost. A change to the zip's format or
-contents must keep a reader for each earlier format version and add a test
-that opens a file of that version. The rules are in `README.md`, under
-"Every saved audit must still open".
+contents must keep a reader for each earlier format version and add a real
+saved zip of the new version to `test/fixtures/saved-audits/`. The rules are
+in `README.md`, under "Every saved audit must still open".
 
 ## Orientation
 

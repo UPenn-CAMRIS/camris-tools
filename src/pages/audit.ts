@@ -1,5 +1,4 @@
 import {
-  applyRowCorrections,
   decodeCsvBytes,
   parseCsv,
   type ParsedCsv,
@@ -50,12 +49,8 @@ import { renderPageNav } from "../nav";
 import {
   DECISION_KEYS,
   countNeedingDecision,
-  decisionKeyCellsFromCsv,
-  decisionKeyFromCells,
-  decisionsFromCsv,
   emptyDecisionStore,
   type Decision,
-  type DecisionStore,
   type DecisionTableId,
 } from "../decisions";
 import {
@@ -84,12 +79,17 @@ import {
   scanTimeRange,
   type AuditInputFile,
   type AuditInputKey,
-  type AuditManifest,
   type RemovedDecision,
   type ReportFile,
   type ScanRange,
 } from "../savedAudit";
 import { confirmLeave, setLeaveGuard } from "../leaveGuard";
+import {
+  emptyKeySets,
+  prepareSavedAudit,
+  previousAuditFromSaved,
+  type PreparedSavedAudit,
+} from "../restoreAudit";
 
 interface FileSlot {
   key: AuditInputKey;
@@ -140,88 +140,6 @@ const SLOTS: FileSlot[] = [
 /** "new": upload three exports and start an audit. "open": upload a
  * saved audit and continue it. */
 export type AuditMode = "new" | "open";
-
-/** A saved audit, read and checked before any of it is put on the page,
- * so a file that fails part-way leaves the page as it was. */
-interface PreparedSavedAudit {
-  manifest: AuditManifest;
-  inputs: Record<
-    AuditInputKey,
-    { filename: string; bytes: Uint8Array; parsed: ParsedCsv }
-  >;
-  decisions: DecisionStore;
-  /** Every decision key listed in the four decision tables' files, with a
-   * decision or not: a previous audit's decisions are not filled in on
-   * these again. */
-  considered: Record<DecisionTableId, Set<string>>;
-  /** The previous audit the saved audit was started with, if any. */
-  previous: PreviousAudit | null;
-}
-
-/** An empty set of keys for each decision table. */
-function emptyKeySets(): Record<DecisionTableId, Set<string>> {
-  return {
-    protocolIssues: new Set(),
-    mismatches: new Set(),
-    prodevConsistency: new Set(),
-    humanMriExternal: new Set(),
-  };
-}
-
-/** A saved audit as the previous audit of a new one. Its own previous
- * audit, and the decisions removed in it, do not carry over: its CSV
- * files already hold what it passed on. */
-function previousAuditFromZip(opened: ReturnType<typeof openSavedAudit>): PreviousAudit {
-  const { manifest } = opened;
-  return readPreviousAudit(
-    {
-      auditId: manifest.auditId,
-      savedAt: manifest.savedAt,
-      savedBy: manifest.savedBy,
-      dogfishScanRange: manifest.dogfishScanRange,
-      removedDecisions: [],
-    },
-    opened.reports
-  );
-}
-
-async function prepareSavedAudit(file: File): Promise<PreparedSavedAudit> {
-  const opened = openSavedAudit(new Uint8Array(await file.arrayBuffer()));
-
-  const inputs = {} as PreparedSavedAudit["inputs"];
-  for (const key of AUDIT_INPUT_KEYS) {
-    const { filename, bytes, corrections } = opened.inputs[key];
-    let parsed: ParsedCsv;
-    try {
-      parsed = applyRowCorrections(parseCsv(decodeCsvBytes(bytes)), corrections);
-    } catch (err) {
-      const why = err instanceof Error ? err.message : String(err);
-      throw new Error(`The saved audit's ${filename} could not be restored. ${why}`);
-    }
-    inputs[key] = { filename, bytes, parsed };
-  }
-
-  const decisions = emptyDecisionStore();
-  const considered = emptyKeySets();
-  for (const table of DECISION_TABLE_IDS) {
-    const reportFile = DECISION_REPORT_FILES[table];
-    const csv = opened.reports.get(reportFile);
-    if (csv === undefined) {
-      throw new Error(`This saved audit is missing reports/${reportFile}.`);
-    }
-    const rows = parseCsv(csv).rows;
-    decisions[table] = decisionsFromCsv(table, rows);
-    for (const row of rows) {
-      considered[table].add(decisionKeyFromCells(decisionKeyCellsFromCsv(table, row)));
-    }
-  }
-
-  const previous = opened.previous
-    ? readPreviousAudit(opened.previous.record, opened.previous.reports)
-    : null;
-
-  return { manifest: opened.manifest, inputs, decisions, considered, previous };
-}
 
 /** A saved audit already read and checked, and the name of its file. */
 interface OpenedSavedAudit {
@@ -1361,7 +1279,7 @@ export function renderAuditPage(
       if (!hasAudit) setStatus("saved", `Reading ${file.name}...`);
       let prepared: PreparedSavedAudit;
       try {
-        prepared = await prepareSavedAudit(file);
+        prepared = prepareSavedAudit(new Uint8Array(await file.arrayBuffer()));
       } catch (err) {
         if (!hasAudit) setStatus("saved", `Failed to open ${file.name}`);
         const why = err instanceof Error ? err.message : String(err);
@@ -1403,7 +1321,7 @@ export function renderAuditPage(
       setStatus("previous", `Reading ${file.name}...`);
       let next: PreviousAudit;
       try {
-        next = previousAuditFromZip(
+        next = previousAuditFromSaved(
           openSavedAudit(new Uint8Array(await file.arrayBuffer()))
         );
       } catch (err) {
