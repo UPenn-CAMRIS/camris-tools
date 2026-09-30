@@ -13,7 +13,9 @@ The suite has two tools, presented as separate pages behind one landing page:
   Julia audit script, rebuilt so non-technical staff can run it from a
   browser without a Julia environment.
 - **Contrast Injection Tool** (`#/contrast`) — builds a contrast-injection
-  billing file from a Contrast Report and a CAMRIS Technologists list. A
+  billing file from a Contrast Report and a CAMRIS Technologists list, and
+  picks each row's billing code from the same industry-sponsorship sources
+  the Audit Tool checks. A
   reimplementation of `Contrast.jl` (kept as a reference in
   `contrast_test_set_1/`, not ported line-for-line).
 
@@ -300,31 +302,73 @@ are format version 2; the tool still opens version-1 files.
 REDCap's protocol field is free text and can name a protocol more than one
 way (see [Design decisions](#design-decisions-and-constraints)). If the same
 name turns up on two REDCap rows that otherwise look like different
-protocols, the app blocks the audit — the same way a missing required column
+protocols, the app blocks the audit, and the Contrast Injection Tool's
+Generate Output, the same way a missing required column
 does — and shows both rows so the REDCap data can be checked by hand.
 
 ## Contrast Injection Tool
 
-Upload three files:
+Upload five files:
 
 - **Contrast Report** — Excel (`.xlsx`) or CSV, the source event export
 - **CAMRIS Technologists** — CSV, maps each Technologist name to a PennKey
-- **CAMS Data** — CSV, fund and industry-sponsorship data per protocol
+- **CAMS Data**, **REDCap Export**, **Dogfish Events** — CSV, the same
+  exports the Audit Tool takes
 
 The tool keeps only rows with a non-blank "Procedure-Related Meds" value and
 a Technologist found in the CAMRIS Technologists file, then builds one output
 row per kept event with the billing constants
-(`lab=7, sublab=0, desc1="Contrast Injection", quantity=1, bill="Y"`). The
-`code` is chosen per row from CAMS, using the same industry test as the Audit
-Tool (`classifyIndustry` in `cams.ts`): `CAMRIS-051` when CAMS marks the row's
-protocol "Industry Sponsored", `CAMRIS-003` for any other CAMS-known protocol.
-
-A kept row whose "Linked Study IRB Number" is blank, or names a protocol with
-no CAMS record, cannot be classified, so it is left out of the billing output
-and listed in a second **CAMS Mismatches** table instead — the same way the
-Audit Tool reports an event with no CAMS match rather than guessing. Rows
+(`lab=7, sublab=0, desc1="Contrast Injection", quantity=1, bill="Y"`). Rows
 skipped for each reason (no meds, no technologist match) are counted and
-shown. Both tables are exportable to CSV.
+shown.
+
+The `code` is `CAMRIS-051` for an industry-sponsored protocol and
+`CAMRIS-003` otherwise. Three sources say whether a protocol is industry
+sponsored, each read the way the Audit Tool reads it (see
+[Two sources for industry sponsorship](#two-sources-for-industry-sponsorship)):
+
+- **MRI service** — the MRI rate Dogfish billed for the same scan
+  (`mriServiceIndustry()` in `audit.ts`). `Human MRI (Industry/CHOP)` or
+  `Animal MRI (Industry/CHOP)` says industry; any other MRI rate says not
+  industry. The external rate gives no answer, because it serves external
+  users whether or not they are industry. The Industry/CHOP rate on a CHOP
+  study gives no answer either, because a non-industry CHOP study is billed
+  at it too.
+- **CAMS** — `classifyIndustry()` in `cams.ts`.
+- **REDCap** — the funding type, from `buildRedcapLookup()` in `audit.ts`.
+
+The Contrast Report has no Event ID, so a row is matched to its Dogfish
+event by protocol and time: an event that billed an MRI service, on the same
+normalized protocol number, on the date of Begin Exam Time, with the Scan
+Time nearest to Begin Exam Time (the earlier Scan Time, then the lower Event
+ID, on a tie). No-show rows are not events here, as in the audit.
+
+The suggested code is the one most of the sources that answer point to
+(`suggestCode()` in `contrast.ts`). A tie, which happens only when two
+sources answer and disagree, goes to the MRI service, then CAMS. With no
+answer at all (for example, a blank IRB number), there is no suggested code.
+A CHOP study that is not industry sponsored is `CAMRIS-003`: CHOP studies
+pay the standard rate for contrast, as for the Stimulus and Reader fees.
+
+The results are one table, with the billing columns first. The `code` cell
+is a drop-down, set to the suggested code, that a person can change. The
+columns after the billing columns show how the code was chosen: Suggested
+Code, Code Set By Hand, Says Industry and Says Not Industry (the sources on
+each side), Sources Disagree, REDCap CHOP, and the matched Dogfish Event ID
+and MRI Service. Then come the audit's mismatch flags, with the same meaning
+as on the audit's Mismatches table (No CAMS Match, No Active REDCap Match,
+No REDCap Funding Type, Invalid Protocol Format), plus No Dogfish MRI Match.
+A row with a mismatch is still in the table, with the code its other sources
+suggest.
+
+**Export billing CSV** writes only the billing columns (`date` to `bill`),
+with the code chosen in the table, in the order on screen. It stays disabled
+until every row has a code. **Export full table** writes every column. The
+page asks before it discards codes set by hand: on Generate Output, or when
+you leave the page.
+
+A REDCap name collision blocks Generate Output, as it blocks the audit (see
+[REDCap collision guard](#redcap-collision-guard)).
 
 ## Running it
 
@@ -403,8 +447,10 @@ src/
   audit.ts              the audit rule engine — protocol normalization,
                         event grouping, CAMS/REDCap matching, the violation
                         checks, the report tables
-  contrast.ts            the contrast rule engine — row filtering, per-row
-                         billing-code selection, output row construction
+  contrast.ts            the contrast rule engine — row filtering, matching
+                         each row to its Dogfish MRI event, the per-row
+                         code suggestion from the three industry sources,
+                         output row construction
   cams.ts                CAMS protocol lookup and the industry-sponsorship
                          test, shared by audit.ts and contrast.ts so the
                          two cannot answer "is this industry?" differently
@@ -516,16 +562,18 @@ rows with the other name silently drop out.
 
 ### A service flag is not automatically "industry"
 
-`billedIndustry` in `computeFlags()` only checks `humanMRIIndustry` and
+`billedIndustryRate()` in `audit.ts` only checks `humanMRIIndustry` and
 `animalMRIIndustry`. A new service flag does not count as industry billing
-unless you add it to that line on purpose. Every non-industry variant added
+unless you add it there on purpose. Both the audit's rate checks
+(`billedIndustry` in `computeFlags()`) and the Contrast Injection Tool's MRI
+service source (`mriServiceIndustry()`) read it. Every non-industry variant added
 so far (external, after-hours, both Prodev tiers) was deliberately left out.
 The external rate is also exempt from the "Industry Billed As Government"
 check (`billedExternal` in `computeFlags()`), because it serves external
 users whether or not they are industry.
 
 The industry-rate ancillary-fee flags (`stimulusIndustry`,
-`neuroreaderIndustry`) are also deliberately not on that line. `billedIndustry`
+`neuroreaderIndustry`) are also deliberately not in it. `billedIndustryRate()`
 is about the MRI service code; those two fees have their own dedicated
 Stimulus/Neuroreader "Billed As Government" / "Billed As Industry" check in
 `computeFlags()`, which reads them directly.
@@ -536,17 +584,19 @@ Both tools ask that question of CAMS, and must answer it the same way, so the
 lookup and the test live once in `cams.ts` — `buildCamsLookup()`,
 `normalizeDogfishCamsProtocol()`, and `classifyIndustry()`. The Audit Tool
 flags a mismatch between billed rate and sponsorship; the Contrast Injection
-Tool picks `CAMRIS-051` vs `CAMRIS-003` from it. "Industry" means a CAMS
+Tool uses it as one of the sources it picks `CAMRIS-051` vs `CAMRIS-003`
+from. "Industry" means a CAMS
 record whose "Industry Sponsored" is exactly `"Yes"`; `"No"`, `"Not
 Reported"`, and blank all read as not industry; no CAMS record at all is
-neither — the caller decides what to do with that (the audit lists it as a
-mismatch, and so does contrast). Do not fork this logic into either tool.
+neither — the caller decides what to do with that (both tools flag it as No
+CAMS Match). Do not fork this logic into either tool.
 
 ### Two sources for industry sponsorship
 
-The audit's rate checks also ask REDCap, as a second source. This does not
-fork the CAMS test: CAMS still answers the way `classifyIndustry()` does,
-and the Contrast Injection Tool still uses CAMS alone. REDCap says a
+The audit's rate checks also ask REDCap, as a second source, and so does the
+Contrast Injection Tool. This does not fork the CAMS test: CAMS still
+answers the way `classifyIndustry()` does. Both tools read REDCap through
+`buildRedcapLookup()` in `audit.ts`. REDCap says a
 protocol is industry when its `funding_type` is 1 ("industry") or 4
 ("industry funding"); every other code, including the old government code
 2, is not industry, and a blank code is no answer
@@ -580,7 +630,7 @@ protocol number down to a 6-digit base, or leaves it unchanged if it's an
 animal (`AR` + 6 digits) or `xx-xxxx` protocol. Dogfish and CAMS always agree
 on this one normalized form, so a plain lookup by that form works for both.
 The Contrast Injection Tool normalizes its "Linked Study IRB Number" the same
-way to match CAMS.
+way to match CAMS, REDCap, and Dogfish.
 
 REDCap does not follow this rule. Its `irb_protocol_number` field is free
 text, and can carry more than one identifier for the same protocol — an
@@ -613,8 +663,8 @@ Change the Prodev definition there, not in either report.
 
 Every file a user uploads is parsed and held in memory in the browser tab; it
 is never written to disk, sent over the network, or shared between the two
-tool pages. Both pages take their own CAMS Data upload; each parses its own
-copy, and neither reuses the other's.
+tool pages. Both pages take their own CAMS Data, REDCap Export, and Dogfish
+Events uploads; each parses its own copy, and neither reuses the other's.
 
 Work carries over between sessions only through a file the user downloads:
 the saved audit zip (see [Saving an audit](#saving-an-audit)). Decisions

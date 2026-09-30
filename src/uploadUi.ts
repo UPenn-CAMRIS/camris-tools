@@ -15,6 +15,7 @@ import {
   type TabularData,
 } from "./sanityChecks";
 import { downloadCsv } from "./csvExport";
+import type { RedcapNameCollision } from "./types";
 
 export function setStatus(
   key: string,
@@ -72,6 +73,42 @@ export function renderSanityChecks(
   }
 
   return result;
+}
+
+/** Shows the REDCap name collisions in the element with `containerId`,
+ * or clears it when there are none. REDCap's protocol field can name a
+ * protocol more than one way (see buildRedcapLookup). A name shared
+ * between two rows that otherwise disagree is a data problem, not a
+ * normal resubmission, so the caller blocks its "run" action the same as
+ * for a missing required column. */
+export function renderRedcapCollisions(
+  containerId: string,
+  collisions: RedcapNameCollision[]
+): void {
+  const container = document.getElementById(containerId)!;
+  container.innerHTML = "";
+  if (collisions.length === 0) return;
+
+  const box = document.createElement("div");
+  box.className = "detail-box sanity-blocking";
+
+  const title = document.createElement("p");
+  title.className = "sanity-blocking-title";
+  title.textContent = `This file has ${collisions.length} protocol identifier${
+    collisions.length === 1 ? "" : "s"
+  } shared between rows that otherwise look like different protocols.`;
+  box.appendChild(title);
+
+  const list = document.createElement("ul");
+  for (const collision of collisions) {
+    const li = document.createElement("li");
+    const [a, b] = collision.protocolFields;
+    li.textContent = `"${collision.name}" appears in both "${a}" and "${b}". Check REDCap for a typo or an accidental cross-reference to a different protocol.`;
+    list.appendChild(li);
+  }
+  box.appendChild(list);
+
+  container.appendChild(box);
 }
 
 function buildBlockingColumnsBox(result: SanityCheckResult): HTMLElement {
