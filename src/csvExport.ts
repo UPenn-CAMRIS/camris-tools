@@ -11,6 +11,9 @@ export interface Column<T> {
    * from `get`, for a cell the user can edit. `get` still gives the
    * value for the CSV export. */
   render?: (row: T) => Node;
+  /** An action on screen, such as a remove button, not data: the CSV
+   * export leaves the column out. */
+  screenOnly?: boolean;
 }
 
 /** A cell value as the CSV export writes it. */
@@ -19,9 +22,10 @@ export function csvField(value: string | boolean): string {
 }
 
 export function toCsv<T>(columns: Column<T>[], rows: T[]): string {
+  const data = columns.filter((c) => !c.screenOnly);
   return Papa.unparse({
-    fields: columns.map((c) => c.header),
-    data: rows.map((row) => columns.map((c) => csvField(c.get(row)))),
+    fields: data.map((c) => c.header),
+    data: rows.map((row) => data.map((c) => csvField(c.get(row)))),
   });
 }
 

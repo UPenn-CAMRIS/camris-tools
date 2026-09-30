@@ -498,3 +498,38 @@ td.bool-true {
   color: #444;
   font-size: 0.92rem;
 }
+
+.decision-select.unconfirmed {
+  border-color: #b26a00;
+  background: #fff4e0;
+  color: #1a1a1a;
+}
+
+button.decision-confirm {
+  padding: 0.2rem 0.6rem;
+  font-size: 0.85rem;
+}
+
+.earlier-decisions > summary {
+  cursor: pointer;
+  margin-bottom: 0.5rem;
+}
+
+.earlier-decisions > summary h2 {
+  display: inline;
+  font-size: 1.15rem;
+}
+
+.earlier-decisions .count {
+  color: #666;
+  font-weight: normal;
+  font-size: 0.95rem;
+}
+
+button.remove-earlier {
+  padding: 0.1rem 0.45rem;
+  font-size: 0.9rem;
+  background: transparent;
+  color: var(--danger);
+  border: 1px solid var(--border);
+}

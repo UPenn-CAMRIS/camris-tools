@@ -267,6 +267,7 @@ const DETAILS: SavedAuditDetails = {
     { filename: DECISION_REPORT_FILES.mismatches, csv: "Protocol Number\r\nAR123456" },
     { filename: "audit_violations.csv", csv: "Event ID\r\n1" },
   ],
+  previous: null,
 };
 
 // A saved audit opens to the same manifest, inputs, corrections, and
@@ -330,7 +331,7 @@ assert.throws(
   /is not a CAMRIS audit manifest/
 );
 assert.throws(
-  () => openSavedAudit(zipWithManifest({ ...GOOD_MANIFEST, formatVersion: 2 })),
+  () => openSavedAudit(zipWithManifest({ ...GOOD_MANIFEST, formatVersion: 3 })),
   /saved by a newer version of the tool/
 );
 assert.throws(

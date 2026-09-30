@@ -12,6 +12,10 @@ export type DecisionValue = "Fix" | "Don't fix";
 
 export const DECISION_VALUES: DecisionValue[] = ["Fix", "Don't fix"];
 
+/** The Decision column's text for a "Don't fix" carried from a previous
+ * audit that no one has confirmed in this audit yet. */
+export const UNCONFIRMED_DONT_FIX = "Don't fix (unconfirmed)";
+
 /** One decision, for one decision key of one table. */
 export interface Decision {
   value: DecisionValue;
@@ -22,9 +26,15 @@ export interface Decision {
   /** Local date, "YYYY-MM-DD", when the decision was last made or
    * changed. */
   decidedOn: string;
+  /** The initials of the reviewer who last confirmed the decision. A
+   * decision made or changed is confirmed by the same reviewer. */
+  confirmedBy: string;
   /** Local date, "YYYY-MM-DD", when the decision was last confirmed. A
    * decision made or changed is confirmed on the same day. */
   confirmedOn: string;
+  /** True for a "Don't fix" carried from a previous audit and not yet
+   * confirmed in this one. Its Confirmed By and Confirmed On are blank. */
+  unconfirmed?: boolean;
 }
 
 /** The results tables that take decisions. */
@@ -59,6 +69,12 @@ export function emptyDecisionStore(): DecisionStore {
  * audit's CSV give the same key. */
 function keyOf(...parts: (string | boolean)[]): string {
   return JSON.stringify(parts.map(csvField));
+}
+
+/** The decision key for a row's key columns' text, in the order of
+ * DECISION_KEY_COLUMNS. */
+export function decisionKeyFromCells(cells: string[]): string {
+  return keyOf(...cells);
 }
 
 /** The decision key of each table's rows. A decision belongs to its key,
@@ -133,15 +149,38 @@ export function recordDecision(
     reason: reason.trim(),
     decidedBy: reviewer.trim(),
     decidedOn: today,
+    confirmedBy: reviewer.trim(),
     confirmedOn: today,
   });
 }
 
-/** A row still needs a decision when it has none, or when it is "Don't
- * fix" with no reason. */
+/** Confirms a decision carried from a previous audit: `reviewer` confirms
+ * it today, and its value, reason, and Decided By/On stay as they were. */
+export function confirmDecision(
+  decisions: Map<string, Decision>,
+  key: string,
+  reviewer: string,
+  today: string
+): void {
+  const decision = decisions.get(key);
+  if (!decision) return;
+  decisions.set(key, {
+    value: decision.value,
+    reason: decision.reason,
+    decidedBy: decision.decidedBy,
+    decidedOn: decision.decidedOn,
+    confirmedBy: reviewer.trim(),
+    confirmedOn: today,
+  });
+}
+
+/** A row still needs a decision when it has none, when its decision is
+ * carried from a previous audit and not confirmed yet, or when it is
+ * "Don't fix" with no reason. */
 export function needsDecision(decision: Decision | undefined): boolean {
   return (
     decision === undefined ||
+    decision.unconfirmed === true ||
     (decision.value === "Don't fix" && decision.reason === "")
   );
 }
@@ -156,25 +195,80 @@ export function countNeedingDecision<T>(
     .length;
 }
 
-/** The decision columns added to a table, in order. Each `get` gives the
- * text for the CSV export; the page adds the editable cells on screen. */
-export function decisionColumns<T>(
-  keyFn: (row: T) => string,
-  decisions: Map<string, Decision>
+/** The Decision column's text for `decision`. */
+export function decisionText(decision: Decision): string {
+  return decision.unconfirmed ? UNCONFIRMED_DONT_FIX : decision.value;
+}
+
+/** The decision columns added to a table, in order, reading each row's
+ * decision with `decisionOf`. Each `get` gives the text for the CSV
+ * export; the page adds the editable cells on screen. */
+export function decisionColumnsOf<T>(
+  decisionOf: (row: T) => Decision | undefined
 ): Column<T>[] {
   const field =
     (pick: (d: Decision) => string) =>
     (row: T): string => {
-      const decision = decisions.get(keyFn(row));
+      const decision = decisionOf(row);
       return decision ? pick(decision) : "";
     };
   return [
-    { header: "Decision", get: field((d) => d.value) },
+    { header: "Decision", get: field(decisionText) },
     { header: "Reason", get: field((d) => d.reason), wrap: true },
     { header: "Decided By", get: field((d) => d.decidedBy) },
     { header: "Decided On", get: field((d) => d.decidedOn) },
+    { header: "Confirmed By", get: field((d) => d.confirmedBy) },
     { header: "Confirmed On", get: field((d) => d.confirmedOn) },
   ];
+}
+
+/** The decision columns for a table whose rows' decisions are in
+ * `decisions`, by key. */
+export function decisionColumns<T>(
+  keyFn: (row: T) => string,
+  decisions: Map<string, Decision>
+): Column<T>[] {
+  return decisionColumnsOf((row: T) => decisions.get(keyFn(row)));
+}
+
+/** A row's key columns' text in a table's CSV file, in the order of
+ * DECISION_KEY_COLUMNS. Not trimmed: the key is the exact text the export
+ * wrote, the same as DECISION_KEYS gives for the row on screen. */
+export function decisionKeyCellsFromCsv(
+  table: DecisionTableId,
+  row: CsvRow
+): string[] {
+  return DECISION_KEY_COLUMNS[table].map((header) => row[header] ?? "");
+}
+
+/** Reads the decision columns of one CSV row. `where` names the table, for
+ * the error message. A blank Decision is no decision. Files saved before
+ * the Confirmed By column existed get the decider as the confirmer, since
+ * a decision was then always confirmed by whoever made it. */
+export function decisionFromCsvRow(
+  row: CsvRow,
+  where: string
+): Decision | undefined {
+  const cell = (header: string) => (row[header] ?? "").trim();
+  const text = cell("Decision");
+  if (text === "") return undefined;
+  const unconfirmed = text === UNCONFIRMED_DONT_FIX;
+  const value = unconfirmed ? "Don't fix" : text;
+  if (!(DECISION_VALUES as string[]).includes(value)) {
+    throw new Error(
+      `The saved audit's ${where} table has an unknown decision, "${text}".`
+    );
+  }
+  const decision: Decision = {
+    value: value as DecisionValue,
+    reason: cell("Reason"),
+    decidedBy: cell("Decided By"),
+    decidedOn: cell("Decided On"),
+    confirmedBy: "Confirmed By" in row ? cell("Confirmed By") : cell("Decided By"),
+    confirmedOn: cell("Confirmed On"),
+  };
+  if (unconfirmed) decision.unconfirmed = true;
+  return decision;
 }
 
 /** Reads a table's decisions back from its CSV file in a saved audit.
@@ -185,28 +279,11 @@ export function decisionsFromCsv(
   rows: CsvRow[]
 ): Map<string, Decision> {
   const decisions = new Map<string, Decision>();
-  const cell = (row: CsvRow, header: string) => (row[header] ?? "").trim();
   for (const row of rows) {
-    const value = cell(row, "Decision");
-    if (value === "") continue;
-    if (!(DECISION_VALUES as string[]).includes(value)) {
-      throw new Error(
-        `The saved audit's ${DECISION_TABLE_LABELS[table]} table has an unknown decision, "${value}".`
-      );
-    }
-    // Key cells are not trimmed: the key is the exact text the export
-    // wrote, the same as DECISION_KEYS gives for the row on screen.
-    const key = keyOf(
-      ...DECISION_KEY_COLUMNS[table].map((header) => row[header] ?? "")
-    );
-    if (decisions.has(key)) continue;
-    decisions.set(key, {
-      value: value as DecisionValue,
-      reason: cell(row, "Reason"),
-      decidedBy: cell(row, "Decided By"),
-      decidedOn: cell(row, "Decided On"),
-      confirmedOn: cell(row, "Confirmed On"),
-    });
+    const decision = decisionFromCsvRow(row, DECISION_TABLE_LABELS[table]);
+    if (!decision) continue;
+    const key = keyOf(...decisionKeyCellsFromCsv(table, row));
+    if (!decisions.has(key)) decisions.set(key, decision);
   }
   return decisions;
 }

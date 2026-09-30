@@ -1,8 +1,8 @@
 import type { Column } from "./csvExport";
 import {
   DECISION_VALUES,
+  confirmDecision,
   decisionColumns,
-  needsDecision,
   recordDecision,
   type Decision,
   type DecisionValue,
@@ -81,9 +81,11 @@ export function decisionTableUi<T>(
       changed(key);
     });
     register(key, () => {
-      select.value = decisions.get(key)?.value ?? "";
+      const decision = decisions.get(key);
+      select.value = decision?.value ?? "";
       select.disabled = noReviewer();
       select.title = select.disabled ? NO_REVIEWER_HINT : "";
+      select.classList.toggle("unconfirmed", decision?.unconfirmed === true);
     });
     return select;
   };
@@ -118,7 +120,7 @@ export function decisionTableUi<T>(
             : "";
       input.classList.toggle(
         "needs-reason",
-        decision !== undefined && needsDecision(decision)
+        decision?.value === "Don't fix" && decision.reason === ""
       );
     });
     return input;
@@ -126,11 +128,31 @@ export function decisionTableUi<T>(
 
   for (const col of otherCols) {
     col.render = (row) => {
-      const span = document.createElement("span");
-      register(keyFn(row), () => {
-        span.textContent = col.get(row) as string;
+      const key = keyFn(row);
+      const cell = document.createElement("span");
+      // A decision carried from a previous audit waits for a reviewer:
+      // its Confirmed On cell holds the Confirm button until then.
+      const confirmButton =
+        col.header === "Confirmed On" ? document.createElement("button") : null;
+      if (confirmButton) {
+        confirmButton.type = "button";
+        confirmButton.className = "secondary decision-confirm";
+        confirmButton.textContent = "Confirm";
+        confirmButton.addEventListener("click", () => {
+          confirmDecision(decisions, key, context.reviewer(), context.today());
+          changed(key);
+        });
+      }
+      register(key, () => {
+        if (confirmButton && decisions.get(key)?.unconfirmed) {
+          confirmButton.disabled = noReviewer();
+          confirmButton.title = confirmButton.disabled ? NO_REVIEWER_HINT : "";
+          cell.replaceChildren(confirmButton);
+        } else {
+          cell.textContent = col.get(row) as string;
+        }
       });
-      return span;
+      return cell;
     };
   }
 
