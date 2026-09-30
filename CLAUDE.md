@@ -43,6 +43,14 @@ this project:
 - Show the commit message and wait for approval before `git commit`. Merge
   only when told to.
 
+## Saved audits stay readable
+
+Every saved audit zip that an earlier version of the tool wrote must open in
+every later version, with nothing lost. A change to the zip's format or
+contents must keep a reader for each earlier format version and add a test
+that opens a file of that version. The rules are in `README.md`, under
+"Every saved audit must still open".
+
 ## Orientation
 
 See `README.md` for what the two tools do and the design constraints they
