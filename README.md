@@ -214,6 +214,33 @@ same care as the Dogfish, CAMS, and REDCap exports themselves. The page asks
 for confirmation before you leave it, or close the tab, with decisions that
 are not in a saved audit.
 
+### Opening a saved audit
+
+The Audit page has two modes, chosen at the top: **Start a new audit**
+(upload the three exports) and **Open a saved audit** (upload one saved
+audit zip). Opening a saved audit restores it and runs it again:
+
+- The three inputs come from the zip, and their saved row corrections are
+  applied again (`applyRowCorrections` in `parseCsv.ts`). The input slots
+  have no file pickers in this mode, because a different input file would
+  be a different audit. Malformed rows can still be corrected; a new
+  correction is added to the list, and the next save includes it.
+- The decisions are read back from the four decision tables' CSV files
+  (`decisionsFromCsv` in `decisions.ts`, `DECISION_REPORT_FILES` in
+  `savedAudit.ts`). A decision's key is rebuilt from the CSV columns named
+  in `DECISION_KEY_COLUMNS`, so those names must match the tables' column
+  headers on the page.
+- Saving again keeps the audit ID and creation time, and writes a new file
+  with the new save date.
+
+The whole zip is read and checked before the page changes, so a wrong or
+damaged file, or one saved by a newer version of the tool, shows an error
+and leaves any open audit as it was. A zip that unpacks to more than 200 MB
+is refused. When the zip was saved by a different build of the tool, the
+page says so, because changed audit rules can give different results; a
+decision whose row is no longer flagged is not kept when the audit is saved
+again.
+
 ### REDCap collision guard
 
 REDCap's protocol field is free text and can name a protocol more than one
@@ -338,7 +365,7 @@ src/
   decisions.ts           Fix / Don't fix decisions: the decision keys of
                          each table and the decision CSV columns
   decisionUi.ts          the editable decision cells in the results tables
-  savedAudit.ts          builds the saved-audit zip and its manifest
+  savedAudit.ts          builds and reads the saved-audit zip and its manifest
   csvExport.ts           generic CSV export + download
   ruleExplanations.ts    plain-English descriptions shown under each table
   types.ts               shared type definitions

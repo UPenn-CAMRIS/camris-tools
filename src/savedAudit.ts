@@ -1,4 +1,5 @@
-import { strToU8, zipSync } from "fflate";
+import { strFromU8, strToU8, unzipSync, zipSync, type Unzipped } from "fflate";
+import type { DecisionTableId } from "./decisions";
 import type { CsvRow, RowCorrection } from "./parseCsv";
 
 /** A saved audit is one zip file holding everything needed to open the
@@ -18,6 +19,19 @@ export const SAVED_AUDIT_FORMAT_VERSION = 1;
 export type AuditInputKey = "dogfish" | "cams" | "redcap";
 
 export const AUDIT_INPUT_KEYS: AuditInputKey[] = ["dogfish", "cams", "redcap"];
+
+/** The CSV file, in reports/, of each table that takes decisions. Opening
+ * a saved audit reads the decisions back from these files. */
+export const DECISION_REPORT_FILES: Record<DecisionTableId, string> = {
+  protocolIssues: "audit_violations_by_protocol.csv",
+  mismatches: "audit_mismatches.csv",
+  prodevConsistency: "prodev_naming_consistency.csv",
+  humanMriExternal: "human_mri_external_events.csv",
+};
+
+/** The most a saved audit may hold once unpacked. A month of exports is a
+ * few MB; the limit stops a damaged or wrong file from hanging the page. */
+export const MAX_SAVED_AUDIT_BYTES = 200 * 1024 * 1024;
 
 /** The earliest and latest Dogfish Scan Time, compared as text. */
 export interface ScanRange {
@@ -188,4 +202,111 @@ export function newAuditId(): string {
     ""
   );
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+/** A saved audit, read back from its zip. */
+export interface OpenedAudit {
+  manifest: AuditManifest;
+  inputs: Record<AuditInputKey, AuditInputFile>;
+  /** Each report CSV's text, by its file name without "reports/". */
+  reports: Map<string, string>;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isCorrection(value: unknown): value is RowCorrection {
+  return (
+    isRecord(value) &&
+    Number.isInteger(value.rowIndex) &&
+    typeof value.text === "string"
+  );
+}
+
+/** Reads a saved-audit zip. Throws an Error with a plain-English message
+ * when the file is not a saved audit, was saved by a newer version of the
+ * tool, or is missing a part. */
+export function openSavedAudit(zip: Uint8Array): OpenedAudit {
+  const notSavedAudit = (why: string) =>
+    new Error(`This file is not a saved audit: ${why}`);
+
+  let unpackedSize = 0;
+  let tooLarge = false;
+  let files: Unzipped;
+  try {
+    files = unzipSync(zip, {
+      filter: (file) => {
+        unpackedSize += file.originalSize;
+        if (unpackedSize > MAX_SAVED_AUDIT_BYTES) tooLarge = true;
+        return !tooLarge;
+      },
+    });
+  } catch {
+    throw notSavedAudit("it could not be read as a zip file.");
+  }
+  if (tooLarge) {
+    throw notSavedAudit(
+      `it unpacks to more than ${MAX_SAVED_AUDIT_BYTES / (1024 * 1024)} MB.`
+    );
+  }
+
+  const manifestBytes = files["manifest.json"];
+  if (!manifestBytes) throw notSavedAudit("it has no manifest.json.");
+  let manifest: unknown;
+  try {
+    manifest = JSON.parse(strFromU8(manifestBytes));
+  } catch {
+    throw notSavedAudit("its manifest.json could not be read.");
+  }
+  if (!isRecord(manifest) || manifest.format !== SAVED_AUDIT_FORMAT) {
+    throw notSavedAudit("its manifest.json is not a CAMRIS audit manifest.");
+  }
+  if (
+    typeof manifest.formatVersion === "number" &&
+    manifest.formatVersion > SAVED_AUDIT_FORMAT_VERSION
+  ) {
+    throw new Error(
+      "This audit was saved by a newer version of the tool. Reload the page to get the latest version, then open it again."
+    );
+  }
+  if (manifest.formatVersion !== SAVED_AUDIT_FORMAT_VERSION) {
+    throw notSavedAudit("its manifest.json has an unknown format version.");
+  }
+  for (const field of ["auditId", "createdAt", "savedAt", "savedBy", "appVersion"]) {
+    if (typeof manifest[field] !== "string") {
+      throw notSavedAudit(`its manifest.json has no ${field}.`);
+    }
+  }
+
+  const inputs = {} as Record<AuditInputKey, AuditInputFile>;
+  const manifestInputs = isRecord(manifest.inputs) ? manifest.inputs : {};
+  for (const key of AUDIT_INPUT_KEYS) {
+    const input = manifestInputs[key];
+    if (
+      !isRecord(input) ||
+      typeof input.file !== "string" ||
+      typeof input.filename !== "string" ||
+      !Array.isArray(input.corrections) ||
+      !input.corrections.every(isCorrection)
+    ) {
+      throw notSavedAudit(`its manifest.json does not describe the ${key} input.`);
+    }
+    const bytes = files[input.file];
+    if (!bytes) throw notSavedAudit(`it is missing ${input.file}.`);
+    inputs[key] = {
+      filename: input.filename,
+      bytes,
+      corrections: input.corrections,
+    };
+  }
+
+  const reports = new Map<string, string>();
+  for (const [path, bytes] of Object.entries(files)) {
+    if (path.startsWith("reports/")) {
+      reports.set(path.slice("reports/".length), strFromU8(bytes));
+    }
+  }
+
+  return { manifest: manifest as unknown as AuditManifest, inputs, reports };
 }

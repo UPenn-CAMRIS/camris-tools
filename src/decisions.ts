@@ -1,4 +1,5 @@
-import type { Column } from "./csvExport";
+import { csvField, type Column } from "./csvExport";
+import type { CsvRow } from "./parseCsv";
 import type {
   DedupedMismatchRow,
   HumanMriExternalEventRow,
@@ -33,6 +34,14 @@ export type DecisionTableId =
   | "prodevConsistency"
   | "humanMriExternal";
 
+/** Each table's heading on the audit page. */
+export const DECISION_TABLE_LABELS: Record<DecisionTableId, string> = {
+  protocolIssues: "Violations by Protocol",
+  mismatches: "Mismatches",
+  prodevConsistency: "Prodev Naming Consistency",
+  humanMriExternal: "Human MRI (Industry/External) Events",
+};
+
 /** The decisions for each table, by decision key. */
 export type DecisionStore = Record<DecisionTableId, Map<string, Decision>>;
 
@@ -45,8 +54,11 @@ export function emptyDecisionStore(): DecisionStore {
   };
 }
 
+/** A decision key: the key columns' values, as the CSV export writes
+ * them, so a row on screen and the same row read back from a saved
+ * audit's CSV give the same key. */
 function keyOf(...parts: (string | boolean)[]): string {
-  return JSON.stringify(parts);
+  return JSON.stringify(parts.map(csvField));
 }
 
 /** The decision key of each table's rows. A decision belongs to its key,
@@ -81,6 +93,26 @@ export const DECISION_KEYS = {
   humanMriExternal: (row: HumanMriExternalEventRow) =>
     keyOf(row.protocolNumber),
 } satisfies Record<DecisionTableId, (row: never) => string>;
+
+/** The CSV columns that hold each table's decision key, in the order
+ * DECISION_KEYS uses them. They must match the table's column headers
+ * on the audit page. */
+export const DECISION_KEY_COLUMNS: Record<DecisionTableId, string[]> = {
+  protocolIssues: ["Protocol Number", "Issue"],
+  mismatches: [
+    "Protocol Number",
+    "No CAMS Match",
+    "No Active REDCap Match",
+    "No REDCap Funding Type",
+    "Invalid Protocol Format",
+  ],
+  prodevConsistency: [
+    "Protocol Number",
+    "Prodev Service Without Suffix",
+    "Suffix Without Prodev Service",
+  ],
+  humanMriExternal: ["Protocol Number"],
+};
 
 /** Records a decision made today, or removes it when `value` is "". The
  * decision is dated and confirmed today, by `reviewer`. */
@@ -143,4 +175,38 @@ export function decisionColumns<T>(
     { header: "Decided On", get: field((d) => d.decidedOn) },
     { header: "Confirmed On", get: field((d) => d.confirmedOn) },
   ];
+}
+
+/** Reads a table's decisions back from its CSV file in a saved audit.
+ * A row with a blank Decision has none. Rows that share a key repeat the
+ * same decision, so the first one is kept. */
+export function decisionsFromCsv(
+  table: DecisionTableId,
+  rows: CsvRow[]
+): Map<string, Decision> {
+  const decisions = new Map<string, Decision>();
+  const cell = (row: CsvRow, header: string) => (row[header] ?? "").trim();
+  for (const row of rows) {
+    const value = cell(row, "Decision");
+    if (value === "") continue;
+    if (!(DECISION_VALUES as string[]).includes(value)) {
+      throw new Error(
+        `The saved audit's ${DECISION_TABLE_LABELS[table]} table has an unknown decision, "${value}".`
+      );
+    }
+    // Key cells are not trimmed: the key is the exact text the export
+    // wrote, the same as DECISION_KEYS gives for the row on screen.
+    const key = keyOf(
+      ...DECISION_KEY_COLUMNS[table].map((header) => row[header] ?? "")
+    );
+    if (decisions.has(key)) continue;
+    decisions.set(key, {
+      value: value as DecisionValue,
+      reason: cell(row, "Reason"),
+      decidedBy: cell(row, "Decided By"),
+      decidedOn: cell(row, "Decided On"),
+      confirmedOn: cell(row, "Confirmed On"),
+    });
+  }
+  return decisions;
 }
