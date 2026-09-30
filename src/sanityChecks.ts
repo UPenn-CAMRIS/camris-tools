@@ -144,6 +144,8 @@ export const CONTRAST_FILE_SCHEMAS = {
   contrastReport: CONTRAST_REPORT_SCHEMA,
   technologists: TECHNOLOGISTS_SCHEMA,
   cams: CAMS_SCHEMA,
+  redcap: REDCAP_SCHEMA,
+  dogfish: DOGFISH_SCHEMA,
 } as const;
 
 function normalizeHeader(header: string): string {

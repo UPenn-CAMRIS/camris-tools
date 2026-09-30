@@ -1,22 +1,37 @@
 import { parseCsv, readCsvFile, type ParsedCsv } from "../parseCsv";
 import { parseXlsxFile } from "../parseXlsx";
 import {
+  CONTRAST_CODES,
   runContrast,
-  type ContrastOutputRow,
-  type ContrastMismatchRow,
+  type ContrastCode,
+  type ContrastRow,
 } from "../contrast";
+import { buildRedcapLookup } from "../audit";
 import {
   runSanityChecks,
   hasBlockingIssues,
   CONTRAST_FILE_SCHEMAS,
   type TabularData,
 } from "../sanityChecks";
+import type { CsvRow } from "../parseCsv";
+import type { RedcapNameCollision } from "../types";
 import { toCsv, downloadCsv, type Column } from "../csvExport";
-import { setStatus, setCount, renderSanityChecks, renderCsvWarnings } from "../uploadUi";
+import {
+  setStatus,
+  setCountText,
+  renderSanityChecks,
+  renderCsvWarnings,
+  renderRedcapCollisions,
+} from "../uploadUi";
 import { renderTable, sortedRows } from "../table";
 import { renderPageNav } from "../nav";
+import { setLeaveGuard } from "../leaveGuard";
+import {
+  CONTRAST_RULE_EXPLANATIONS,
+  renderRuleExplanations,
+} from "../ruleExplanations";
 
-type SlotKey = "contrastReport" | "technologists" | "cams";
+type SlotKey = keyof typeof CONTRAST_FILE_SCHEMAS;
 
 interface FileSlot {
   key: SlotKey;
@@ -34,9 +49,14 @@ const SLOTS: FileSlot[] = [
   },
   { key: "technologists", label: "CAMRIS Technologists", accept: ".csv", formats: "CSV file" },
   { key: "cams", label: "CAMS Data", accept: ".csv", formats: "CSV file" },
+  { key: "redcap", label: "REDCap Export", accept: ".csv", formats: "CSV file" },
+  { key: "dogfish", label: "Dogfish Events", accept: ".csv", formats: "CSV file" },
 ];
 
-const contrastColumns: Column<ContrastOutputRow>[] = [
+/** The columns of the billing file, in its order. Export billing CSV
+ * writes these alone, so the file keeps the format the billing system
+ * reads. */
+const billingColumns: Column<ContrastRow>[] = [
   { header: "date", get: (r) => r.date },
   { header: "event_time", get: (r) => r.event_time },
   { header: "project", get: (r) => r.project },
@@ -51,16 +71,34 @@ const contrastColumns: Column<ContrastOutputRow>[] = [
   { header: "bill", get: (r) => r.bill },
 ];
 
-const mismatchColumns: Column<ContrastMismatchRow>[] = [
-  { header: "date", get: (r) => r.date },
-  { header: "event_time", get: (r) => r.event_time },
-  { header: "Linked Study IRB Number", get: (r) => r.irbNumber },
-  { header: "technologist", get: (r) => r.technologist },
-  { header: "userid", get: (r) => r.userid },
-  { header: "specimen", get: (r) => r.specimen },
-  { header: "desc2", get: (r) => r.desc2, wrap: true },
+/** True when a person picked a code other than the suggested one. */
+function codeSetByHand(row: ContrastRow): boolean {
+  return row.code !== row.suggestedCode;
+}
+
+/** True when some sources say industry and others say not industry. */
+function sourcesDisagree(row: ContrastRow): boolean {
+  return row.saysIndustry.length > 0 && row.saysNotIndustry.length > 0;
+}
+
+/** The columns after the billing columns: how the code was chosen, and
+ * the mismatch flags. On screen, and in Export full table. */
+const reviewColumns: Column<ContrastRow>[] = [
+  { header: "Suggested Code", get: (r) => r.suggestedCode },
+  { header: "Code Set By Hand", get: codeSetByHand },
+  { header: "Says Industry", get: (r) => r.saysIndustry.join(" + ") },
+  { header: "Says Not Industry", get: (r) => r.saysNotIndustry.join(" + ") },
+  { header: "Sources Disagree", get: sourcesDisagree },
+  { header: "REDCap CHOP", get: (r) => r.chop },
+  { header: "Dogfish Event ID", get: (r) => r.dogfishEventId },
+  { header: "MRI Service", get: (r) => r.mriService, wrap: true },
+  { header: "No Dogfish MRI Match", get: (r) => r.noDogfishMriMatch },
+  { header: "No CAMS Match", get: (r) => r.noCamsMatch },
+  { header: "No Active REDCap Match", get: (r) => r.noActiveRedcapMatch },
+  { header: "No REDCap Funding Type", get: (r) => r.noRedcapFundingType },
+  { header: "Invalid Protocol Format", get: (r) => r.invalidProtocolFormat },
+  { header: "Technologist", get: (r) => r.technologist },
   { header: "Procedure-Related Meds", get: (r) => r.meds, wrap: true },
-  { header: "reason", get: (r) => r.reason },
 ];
 
 export function renderContrastPage(app: HTMLElement): void {
@@ -72,11 +110,12 @@ export function renderContrastPage(app: HTMLElement): void {
   const loadedData = new Map<SlotKey, TabularData>();
   const loadedFilenames = new Map<SlotKey, string>();
   let contrastReportParsedCsv: ParsedCsv | undefined;
+  let redcapCollisions: RedcapNameCollision[] = [];
 
   app.innerHTML = `
     ${renderPageNav("contrast")}
     <h1>Contrast Injection Billing</h1>
-    <p class="subtitle">Upload the files below to build a contrast-injection billing file. The billing code is <code>CAMRIS-051</code> for protocols CAMS marks industry sponsored, and <code>CAMRIS-003</code> otherwise.</p>
+    <p class="subtitle">Upload the files below to build a contrast-injection billing file. The billing code is <code>CAMRIS-051</code> for industry-sponsored protocols, and <code>CAMRIS-003</code> otherwise. Three sources say whether a protocol is industry sponsored, read the same way the Audit Tool reads them: the MRI rate Dogfish billed for the same scan, CAMS, and REDCap. Each row's code is the one most of them point to, and you can change it in the table.</p>
 
     <div class="upload-grid">
       ${SLOTS.map(
@@ -91,6 +130,7 @@ export function renderContrastPage(app: HTMLElement): void {
             <span class="file-status" id="status-${slot.key}"></span>
           </div>
           <div id="sanity-${slot.key}"></div>
+          ${slot.key === "redcap" ? '<div id="redcap-collisions"></div>' : ""}
           <div id="warnings-${slot.key}"></div>
         </div>`
       ).join("")}
@@ -105,17 +145,14 @@ export function renderContrastPage(app: HTMLElement): void {
       <div class="results-section">
         <div class="results-section-header">
           <h2>Contrast Injection Rows <span class="count" id="contrast-row-count"></span></h2>
-          <button class="secondary" id="export-contrast">Export CSV</button>
+          <div class="button-row">
+            <button class="secondary" id="export-contrast">Export billing CSV</button>
+            <button class="secondary" id="export-full">Export full table</button>
+          </div>
         </div>
+        <p class="table-note">Export billing CSV writes the billing columns (<code>date</code> to <code>bill</code>) with the code chosen in the table. It stays off until every row has a code: a row whose sources have no answer starts with none. Export full table writes every column.</p>
         <div class="table-wrap" id="contrast-table"></div>
-      </div>
-      <div class="results-section">
-        <div class="results-section-header">
-          <h2>CAMS Mismatches <span class="count" id="mismatch-row-count"></span></h2>
-          <button class="secondary" id="export-mismatches">Export CSV</button>
-        </div>
-        <p class="subtitle">Billable rows whose Linked Study IRB Number is blank or has no matching protocol in CAMS Data. These are not in the billing file above — resolve them (add the protocol to CAMS, or bill by hand) before submitting.</p>
-        <div class="table-wrap" id="mismatch-table"></div>
+        ${renderRuleExplanations(CONTRAST_RULE_EXPLANATIONS)}
       </div>
     </div>
   `;
@@ -124,6 +161,9 @@ export function renderContrastPage(app: HTMLElement): void {
   const errorBanner = document.getElementById("error-banner")!;
   const resultsEl = document.getElementById("results")!;
   const skippedRowsEl = document.getElementById("skipped-rows")!;
+  const exportBillingButton = document.getElementById(
+    "export-contrast"
+  ) as HTMLButtonElement;
 
   function updateRunButtonState(): void {
     const missingAFile = SLOTS.some((slot) => !loadedData.has(slot.key));
@@ -135,7 +175,15 @@ export function renderContrastPage(app: HTMLElement): void {
           )
         : false;
     });
-    runButton.disabled = missingAFile || hasBlockingSanityIssue;
+    runButton.disabled =
+      missingAFile || hasBlockingSanityIssue || redcapCollisions.length > 0;
+  }
+
+  /** Shows the REDCap name collisions, which block Generate Output the
+   * same way they block the audit. */
+  function showRedcapCollisions(collisions: RedcapNameCollision[]): void {
+    redcapCollisions = collisions;
+    renderRedcapCollisions("redcap-collisions", collisions);
   }
 
   function refreshFileDisplay(key: SlotKey): void {
@@ -174,6 +222,14 @@ export function renderContrastPage(app: HTMLElement): void {
         updateRunButtonState();
       });
     }
+
+    if (key === "redcap") {
+      showRedcapCollisions(
+        hasBlockingIssues(sanityResult)
+          ? []
+          : buildRedcapLookup(data.rows as CsvRow[]).collisions
+      );
+    }
   }
 
   for (const slot of SLOTS) {
@@ -192,6 +248,7 @@ export function renderContrastPage(app: HTMLElement): void {
       if (slot.key === "contrastReport") contrastReportParsedCsv = undefined;
       renderSanityChecks(slot.key, undefined, CONTRAST_FILE_SCHEMAS[slot.key]);
       renderCsvWarnings(slot.key, undefined, () => {});
+      if (slot.key === "redcap") showRedcapCollisions([]);
 
       try {
         const isXlsx =
@@ -214,6 +271,7 @@ export function renderContrastPage(app: HTMLElement): void {
         renderSanityChecks(slot.key, undefined, CONTRAST_FILE_SCHEMAS[slot.key]);
         setStatus(slot.key, `Failed to read ${file.name}`);
         showError(err instanceof Error ? err.message : String(err));
+        if (slot.key === "redcap") showRedcapCollisions([]);
       }
 
       updateRunButtonState();
@@ -259,37 +317,112 @@ export function renderContrastPage(app: HTMLElement): void {
     skippedRowsEl.appendChild(details);
   }
 
-  let lastRows: ContrastOutputRow[] = [];
-  let lastMismatches: ContrastMismatchRow[] = [];
+  let lastRows: ContrastRow[] = [];
+
+  // The Code Set By Hand cell of each row on screen, redrawn when the
+  // row's code changes. Each render of the table replaces them.
+  const handSetCells = new Map<ContrastRow, HTMLElement>();
+
+  const codeColumn = billingColumns.find((c) => c.header === "code")!;
+  const handSetColumn = reviewColumns.find(
+    (c) => c.header === "Code Set By Hand"
+  )!;
+  const tableColumns: Column<ContrastRow>[] = [
+    ...billingColumns.map((col) =>
+      col === codeColumn ? { ...col, render: renderCodeSelect } : col
+    ),
+    ...reviewColumns.map((col) =>
+      col === handSetColumn ? { ...col, render: renderHandSetCell } : col
+    ),
+  ];
+
+  function renderCodeSelect(row: ContrastRow): Node {
+    const select = document.createElement("select");
+    select.className = "code-select";
+    select.setAttribute("aria-label", "Billing code");
+    for (const value of ["", ...CONTRAST_CODES]) {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = value || "—";
+      select.appendChild(option);
+    }
+    select.value = row.code;
+    select.classList.toggle("needs-code", row.code === "");
+    select.addEventListener("change", () => {
+      row.code = select.value as ContrastCode | "";
+      select.classList.toggle("needs-code", row.code === "");
+      const cell = handSetCells.get(row);
+      if (cell) cell.textContent = codeSetByHand(row) ? "✓" : "";
+      refreshCount();
+    });
+    return select;
+  }
+
+  function renderHandSetCell(row: ContrastRow): Node {
+    const cell = document.createElement("span");
+    cell.className = "hand-set";
+    cell.textContent = codeSetByHand(row) ? "✓" : "";
+    handSetCells.set(row, cell);
+    return cell;
+  }
+
+  function refreshCount(): void {
+    const parts = [`${lastRows.length} row${lastRows.length === 1 ? "" : "s"}`];
+    const needCode = lastRows.filter((r) => r.code === "").length;
+    if (needCode > 0) parts.push(`${needCode} need a code`);
+    const disagree = lastRows.filter(sourcesDisagree).length;
+    if (disagree > 0) {
+      parts.push(`${disagree} with sources that disagree`);
+    }
+    const byHand = lastRows.filter(codeSetByHand).length;
+    if (byHand > 0) parts.push(`${byHand} set by hand`);
+    setCountText("contrast-row-count", parts.join(", "));
+
+    exportBillingButton.disabled = needCode > 0;
+    exportBillingButton.title =
+      needCode > 0 ? "Choose a code for every row first." : "";
+  }
+
+  setLeaveGuard(() =>
+    lastRows.some(codeSetByHand)
+      ? "Codes you set by hand will be lost. Leave anyway?"
+      : null
+  );
 
   runButton.addEventListener("click", () => {
     errorBanner.style.display = "none";
 
+    const byHand = lastRows.filter(codeSetByHand).length;
+    if (
+      byHand > 0 &&
+      !window.confirm(
+        `Generating the output again discards the ${byHand} code${
+          byHand === 1 ? "" : "s"
+        } you set by hand. Continue?`
+      )
+    ) {
+      return;
+    }
+
     try {
-      const contrastRows = loadedData.get("contrastReport")!.rows;
-      const technologistRows = loadedData.get("technologists")!.rows;
-      const camsRows = loadedData.get("cams")!.rows;
-
-      const result = runContrast(contrastRows, technologistRows, camsRows);
+      const result = runContrast(
+        loadedData.get("contrastReport")!.rows,
+        loadedData.get("technologists")!.rows,
+        loadedData.get("cams")!.rows,
+        loadedData.get("redcap")!.rows as CsvRow[],
+        loadedData.get("dogfish")!.rows as CsvRow[]
+      );
       lastRows = result.rows;
-      lastMismatches = result.mismatches;
 
-      setCount("contrast-row-count", result.rows.length);
       renderSkippedRows(result.skippedNoMeds, result.skippedNoTechMatch);
+      handSetCells.clear();
       renderTable(
         "contrast-table",
-        contrastColumns,
+        tableColumns,
         result.rows,
         "No contrast injection rows found."
       );
-
-      setCount("mismatch-row-count", result.mismatches.length);
-      renderTable(
-        "mismatch-table",
-        mismatchColumns,
-        result.mismatches,
-        "No mismatches — every billable row matched a CAMS protocol."
-      );
+      refreshCount();
 
       resultsEl.classList.add("visible");
     } catch (err) {
@@ -298,20 +431,20 @@ export function renderContrastPage(app: HTMLElement): void {
     }
   });
 
-  document.getElementById("export-contrast")!.addEventListener("click", () => {
+  exportBillingButton.addEventListener("click", () => {
     downloadCsv(
       "contrast_output.csv",
-      toCsv(contrastColumns, sortedRows("contrast-table", contrastColumns, lastRows))
+      toCsv(
+        billingColumns,
+        sortedRows("contrast-table", tableColumns, lastRows)
+      )
     );
   });
 
-  document.getElementById("export-mismatches")!.addEventListener("click", () => {
+  document.getElementById("export-full")!.addEventListener("click", () => {
     downloadCsv(
-      "contrast_mismatches.csv",
-      toCsv(
-        mismatchColumns,
-        sortedRows("mismatch-table", mismatchColumns, lastMismatches)
-      )
+      "contrast_full_table.csv",
+      toCsv(tableColumns, sortedRows("contrast-table", tableColumns, lastRows))
     );
   });
 }

@@ -43,6 +43,7 @@ import {
   setCountText,
   renderSanityChecks,
   renderCsvWarnings,
+  renderRedcapCollisions,
 } from "../uploadUi";
 import { renderTable, sortedRows } from "../table";
 import { renderPageNav } from "../nav";
@@ -58,7 +59,6 @@ import {
   carryDecisions,
   earlierDecisionColumns,
   earlierDecisionRows,
-  readPreviousAudit,
   removedIds,
   sincePreviousLabels,
   type EarlierDecisionRow,
@@ -69,7 +69,6 @@ import {
   AUDIT_INPUT_KEYS,
   DECISION_REPORT_FILES,
   EARLIER_DECISIONS_FILE,
-  PREVIOUS_AUDIT_FILES,
   buildSavedAudit,
   localDate,
   localTimestamp,
@@ -148,14 +147,11 @@ interface OpenedSavedAudit {
 }
 
 /** Renders the Audit Tool page in `mode`. `opened`, in "open" mode, is a
- * saved audit to show as soon as the page is ready. `startingPrevious`,
- * in "new" mode, is the previous audit to start with: the audit that was
- * open when "Start next audit from this one" was clicked. */
+ * saved audit to show as soon as the page is ready. */
 export function renderAuditPage(
   app: HTMLElement,
   mode: AuditMode = "new",
-  opened?: OpenedSavedAudit,
-  startingPrevious?: PreviousAudit
+  opened?: OpenedSavedAudit
 ): void {
   const loadedFiles = new Map<FileSlot["key"], ParsedCsv>();
   const loadedFilenames = new Map<FileSlot["key"], string>();
@@ -242,7 +238,6 @@ export function renderAuditPage(
       <div class="save-bar">
         <button id="save-audit">Save audit (.zip)</button>
         <span class="save-status" id="save-status"></span>
-        <button type="button" class="secondary" id="next-audit">Start next audit from this one</button>
       </div>
       <p class="table-note save-note">The saved audit holds the three input files as uploaded, any row corrections made here, and every table below with its decisions. Store it with the same care as the exports themselves.</p>
 
@@ -357,36 +352,10 @@ export function renderAuditPage(
       missingAFile || hasBlockingSanityIssue || redcapCollisions.length > 0;
   }
 
-  /** REDCap's protocol field can name a protocol more than one way (see
-   * buildRedcapLookup). A name shared between two rows that otherwise
-   * disagree is a data problem, not a normal resubmission — this blocks
-   * the audit the same as a missing required column. */
-  function renderRedcapCollisions(collisions: RedcapNameCollision[]): void {
-    const container = document.getElementById("redcap-collisions")!;
-    container.innerHTML = "";
+  /** Shows the REDCap name collisions, which block the audit. */
+  function showRedcapCollisions(collisions: RedcapNameCollision[]): void {
     redcapCollisions = collisions;
-    if (collisions.length === 0) return;
-
-    const box = document.createElement("div");
-    box.className = "detail-box sanity-blocking";
-
-    const title = document.createElement("p");
-    title.className = "sanity-blocking-title";
-    title.textContent = `This file has ${collisions.length} protocol identifier${
-      collisions.length === 1 ? "" : "s"
-    } shared between rows that otherwise look like different protocols.`;
-    box.appendChild(title);
-
-    const list = document.createElement("ul");
-    for (const collision of collisions) {
-      const li = document.createElement("li");
-      const [a, b] = collision.protocolFields;
-      li.textContent = `"${collision.name}" appears in both "${a}" and "${b}". Check REDCap for a typo or an accidental cross-reference to a different protocol.`;
-      list.appendChild(li);
-    }
-    box.appendChild(list);
-
-    container.appendChild(box);
+    renderRedcapCollisions("redcap-collisions", collisions);
   }
 
   /** Updates the status line and warnings box for `key` from whatever is
@@ -423,7 +392,7 @@ export function renderAuditPage(
     }
 
     if (key === "redcap") {
-      renderRedcapCollisions(
+      showRedcapCollisions(
         hasBlockingIssues(sanityResult)
           ? []
           : buildRedcapLookup(parsed.rows).collisions
@@ -467,7 +436,7 @@ export function renderAuditPage(
       loadedFiles.delete(slot.key);
       renderSanityChecks(slot.key, undefined, FILE_SCHEMAS[slot.key]);
       renderCsvWarnings(slot.key, undefined, () => {});
-      if (slot.key === "redcap") renderRedcapCollisions([]);
+      if (slot.key === "redcap") showRedcapCollisions([]);
 
       try {
         const bytes = new Uint8Array(await file.arrayBuffer());
@@ -477,7 +446,7 @@ export function renderAuditPage(
         renderSanityChecks(slot.key, undefined, FILE_SCHEMAS[slot.key]);
         setStatus(slot.key, `Failed to read ${file.name}`);
         showError(err instanceof Error ? err.message : String(err));
-        if (slot.key === "redcap") renderRedcapCollisions([]);
+        if (slot.key === "redcap") showRedcapCollisions([]);
       }
 
       updateRunButtonState();
@@ -507,9 +476,6 @@ export function renderAuditPage(
   // last save.
   let unsaved = false;
   let lastSaved: { filename: string; at: Date } | null = null;
-  // The initials in the last saved file: this page's save, or the saved
-  // audit opened on it.
-  let lastSavedBy = "";
 
   // The previous audit, for reference, and what this audit has done with
   // it. `considered` holds each table's keys whose previous decision was
@@ -1156,41 +1122,14 @@ export function renderAuditPage(
         })),
       },
     });
-    const filename = savedAuditFilename(
-      lastRun.dogfishScanRange,
-      localDate(now)
-    );
+    const filename = savedAuditFilename(lastRun.dogfishScanRange, now);
     // fflate types its output as a view on any buffer, but it is always a
     // plain ArrayBuffer, which is what Blob accepts.
     const bytes = zip as Uint8Array<ArrayBuffer>;
     downloadBlob(filename, new Blob([bytes], { type: "application/zip" }));
     unsaved = false;
     lastSaved = { filename, at: now };
-    lastSavedBy = reviewerInput.value.trim();
     refreshSaveStatus();
-  });
-
-  // Starts a new audit with this one as its previous audit: its decision
-  // files as they stand now, saved or not.
-  document.getElementById("next-audit")!.addEventListener("click", () => {
-    if (!lastRun || !auditId || !confirmLeave()) return;
-    const reports = new Map(
-      reportFiles()
-        .filter((f) => PREVIOUS_AUDIT_FILES.includes(f.filename))
-        .map((f) => [f.filename, f.csv] as const)
-    );
-    const saved = !unsaved && lastSaved !== null;
-    const previous = readPreviousAudit(
-      {
-        auditId,
-        savedAt: localTimestamp(saved ? lastSaved!.at : new Date()),
-        savedBy: saved ? lastSavedBy : reviewerInput.value.trim(),
-        dogfishScanRange: lastRun.dogfishScanRange,
-        removedDecisions: [],
-      },
-      reports
-    );
-    renderAuditPage(app, "new", undefined, previous);
   });
 
   for (const tab of app.querySelectorAll<HTMLButtonElement>(".mode-tab")) {
@@ -1216,7 +1155,6 @@ export function renderAuditPage(
     }
     auditId = manifest.auditId;
     createdAt = manifest.createdAt;
-    lastSavedBy = manifest.savedBy;
     previousAudit = prepared.previous;
     considered = prepared.considered;
     removedDecisions = prepared.previous?.record.removedDecisions ?? [];
@@ -1336,6 +1274,5 @@ export function renderAuditPage(
         `${file.name} — saved ${describeTime(new Date(savedAt))}${savedBy ? ` by ${savedBy}` : ""}`
       );
     });
-    if (startingPrevious) usePrevious(startingPrevious, "The audit you had open");
   }
 }

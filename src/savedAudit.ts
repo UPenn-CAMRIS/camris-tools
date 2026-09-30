@@ -43,14 +43,6 @@ export const DECISION_REPORT_FILES: Record<DecisionTableId, string> = {
  * flag. */
 export const EARLIER_DECISIONS_FILE = "earlier_decisions_not_flagged.csv";
 
-/** The CSV files of a previous audit that the next audit reads: the four
- * decision tables and the earlier decisions. A version-1 file has no
- * earlier decisions. */
-export const PREVIOUS_AUDIT_FILES = [
-  ...Object.values(DECISION_REPORT_FILES),
-  EARLIER_DECISIONS_FILE,
-];
-
 /** The most a saved audit may hold once unpacked. A month of exports is a
  * few MB; the limit stops a damaged or wrong file from hanging the page. */
 export const MAX_SAVED_AUDIT_BYTES = 200 * 1024 * 1024;
@@ -135,8 +127,8 @@ export interface SavedAuditDetails {
   dogfishScanRange: ScanRange | null;
   inputs: Record<AuditInputKey, AuditInputFile>;
   reports: ReportFile[];
-  /** The previous audit, with its CSV files as PREVIOUS_AUDIT_FILES names
-   * them; null when there is none. */
+  /** The previous audit, with the CSV files it was read from; null when
+   * there is none. */
   previous: { record: PreviousAuditRecord; reports: ReportFile[] } | null;
 }
 
@@ -193,16 +185,25 @@ export function buildSavedAudit(details: SavedAuditDetails): {
 }
 
 /** The saved audit's download name: the Dogfish scan period it covers,
- * then the date it was saved. For example
- * "camris_audit_2026-09-01_to_2026-09-29_saved_2026-09-30.zip". */
+ * then the local date and time it was saved, to the second, so two saves
+ * on the same day get different names. For example
+ * "camris_audit_2026-09-01_to_2026-09-29_saved_2026-09-30_141205.zip".
+ * The time is HHMMSS, on a 24-hour clock, because a file name cannot
+ * hold colons. */
 export function savedAuditFilename(
   range: ScanRange | null,
-  savedOn: string
+  savedAt: Date
 ): string {
   const period = range
     ? `${range.first.slice(0, 10)}_to_${range.last.slice(0, 10)}_`
     : "";
-  return safeName(`camris_audit_${period}saved_${savedOn}.zip`);
+  const time =
+    pad(savedAt.getHours()) +
+    pad(savedAt.getMinutes()) +
+    pad(savedAt.getSeconds());
+  return safeName(
+    `camris_audit_${period}saved_${localDate(savedAt)}_${time}.zip`
+  );
 }
 
 /** The earliest and latest non-blank Dogfish "Scan Time", compared as

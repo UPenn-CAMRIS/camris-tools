@@ -267,17 +267,22 @@ assert.deepEqual(
 );
 assert.equal(scanTimeRange([{ "Scan Time": " " }, {}]), null);
 
-// The file name gives the scan period and the save date.
+// The file name gives the scan period and the local date and time of the
+// save, to the second, so two saves on one day get different names.
 assert.equal(
   savedAuditFilename(
     { first: "2026-09-01 07:30:00", last: "2026-09-29 18:00:00" },
-    "2026-09-30"
+    new Date(2026, 8, 30, 14, 12, 5)
   ),
-  "camris_audit_2026-09-01_to_2026-09-29_saved_2026-09-30.zip"
+  "camris_audit_2026-09-01_to_2026-09-29_saved_2026-09-30_141205.zip"
 );
 assert.equal(
-  savedAuditFilename(null, "2026-09-30"),
-  "camris_audit_saved_2026-09-30.zip"
+  savedAuditFilename(null, new Date(2026, 8, 30, 9, 5, 0)),
+  "camris_audit_saved_2026-09-30_090500.zip"
+);
+assert.notEqual(
+  savedAuditFilename(null, new Date(2026, 8, 30, 9, 5, 0)),
+  savedAuditFilename(null, new Date(2026, 8, 30, 9, 5, 1))
 );
 
 // Dates and times are local, the time with its UTC offset.

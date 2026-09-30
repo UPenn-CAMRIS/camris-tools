@@ -232,7 +232,10 @@ function isOnOrAfter(scanTime: string, date: string): boolean {
   return scanDate === undefined || scanDate >= date;
 }
 
-function isValidProtocolFormat(rawProtocolNumber: string): boolean {
+/** True when a raw protocol number has one of the expected formats (see
+ * above). The audit and the Contrast Injection Tool both flag a number
+ * that does not as a mismatch. */
+export function isValidProtocolFormat(rawProtocolNumber: string): boolean {
   return (
     SIX_DIGIT_PREFIX.test(rawProtocolNumber) ||
     ANIMAL_PROTOCOL.test(rawProtocolNumber) ||
@@ -279,17 +282,21 @@ function extractRedcapProtocolNames(rawIrbNumber: string): string[] {
   return [...names];
 }
 
-interface DogfishEvent {
+export interface DogfishEvent {
   eventId: string;
   protocolNumberRaw: string;
   scanTime: string;
   projectTitle: string;
   scanner: string;
   flags: ServiceFlags;
+  /** The Dogfish services of the event's rows, each once, in row order. */
+  services: string[];
   neuroreaderAtStellarChance: boolean;
 }
 
-function buildDogfishEvents(dogfishRows: CsvRow[]): DogfishEvent[] {
+/** Groups the Dogfish rows into events by Event ID, with the services
+ * of every row of the event as flags. No-show rows are left out. */
+export function buildDogfishEvents(dogfishRows: CsvRow[]): DogfishEvent[] {
   const eventsById = new Map<string, DogfishEvent>();
 
   for (const row of dogfishRows) {
@@ -314,6 +321,7 @@ function buildDogfishEvents(dogfishRows: CsvRow[]): DogfishEvent[] {
     const existing = eventsById.get(eventId);
     if (existing) {
       existing.flags = orFlags(existing.flags, rowFlags);
+      if (!existing.services.includes(service)) existing.services.push(service);
       existing.neuroreaderAtStellarChance ||= rowNeuroreaderAtStellarChance;
     } else {
       eventsById.set(eventId, {
@@ -323,6 +331,7 @@ function buildDogfishEvents(dogfishRows: CsvRow[]): DogfishEvent[] {
         projectTitle,
         scanner,
         flags: rowFlags,
+        services: [service],
         neuroreaderAtStellarChance: rowNeuroreaderAtStellarChance,
       });
     }
@@ -477,7 +486,17 @@ function buildExcessLateCancellations(
   return rows;
 }
 
-function hasMriService(flags: ServiceFlags): boolean {
+/** True when `service` is an MRI service, at any rate. */
+export function isMriService(service: string): boolean {
+  const flag = SERVICE_MAP[service];
+  if (!flag) return false;
+  const flags = emptyFlags();
+  flags[flag] = true;
+  return hasMriService(flags);
+}
+
+/** True when the event billed an MRI service, at any rate. */
+export function hasMriService(flags: ServiceFlags): boolean {
   return (
     flags.humanMRI ||
     flags.humanMRIIndustry ||
@@ -695,7 +714,7 @@ function buildNoShowsOnProdevProtocols(
   return rows;
 }
 
-interface RedcapRecord {
+export interface RedcapRecord {
   neuroreader: boolean;
   stimulus: boolean;
   /** Whether REDCap's funding type is an industry code. `undefined` when
@@ -777,7 +796,7 @@ export function buildRedcapLookup(redcapRows: CsvRow[]): RedcapLookupResult {
         [...owner.names].every((n) => nameSet.has(n));
 
       if (owner !== undefined && !sameRow && !sameNameSet) {
-        const collisionKey = [owner.rawIrb, rawIrb].sort().join(" ") + " " + name;
+        const collisionKey = [owner.rawIrb, rawIrb].sort().join("\u0000") + "\u0000" + name;
         if (!reportedCollisions.has(collisionKey)) {
           reportedCollisions.add(collisionKey);
           collisions.push({ name, protocolFields: [owner.rawIrb, rawIrb] });
@@ -821,13 +840,41 @@ function rateDisagreement(
   return "";
 }
 
+/** True when the event billed an MRI service at the Industry/CHOP rate.
+ * Only these two services count as industry billing (see README, "A
+ * service flag is not automatically industry"). */
+export function billedIndustryRate(flags: ServiceFlags): boolean {
+  return flags.humanMRIIndustry || flags.animalMRIIndustry;
+}
+
+/** What the MRI rate billed on an event says about the protocol's
+ * industry sponsorship, as a third source beside CAMS and REDCap. The
+ * Contrast Injection Tool uses it; it reads the rate the same way the
+ * audit's MRI rate checks do.
+ *
+ * - `true`: billed at the Industry/CHOP rate, on a study that is not
+ *   CHOP.
+ * - `false`: billed at any other MRI rate except the external one.
+ * - `undefined`: no answer. The event has no MRI service; or it billed
+ *   the external rate, which serves external users whether or not they
+ *   are industry; or it billed the Industry/CHOP rate on a CHOP study,
+ *   where that rate is correct whether or not the study is industry. */
+export function mriServiceIndustry(
+  flags: ServiceFlags,
+  chop: boolean
+): boolean | undefined {
+  if (!hasMriService(flags) || flags.humanMRIExternal) return undefined;
+  if (billedIndustryRate(flags)) return chop ? undefined : true;
+  return false;
+}
+
 function computeFlags(
   event: DogfishEvent,
   cams: CamsRecord | undefined,
   redcap: RedcapRecord | undefined
 ): ComputedFlags {
   const { flags, protocolNumberRaw } = event;
-  const billedIndustry = flags.humanMRIIndustry || flags.animalMRIIndustry;
+  const billedIndustry = billedIndustryRate(flags);
   const animalFormat = isAnimalProtocolFormat(protocolNumberRaw);
 
   // Each source's answer to "is this protocol industry-sponsored?", or

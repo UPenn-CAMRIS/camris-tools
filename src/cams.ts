@@ -60,8 +60,8 @@ export function buildCamsLookup(
  * - `"government"` — found in CAMS with any other value ("No", "Not
  *   Reported", or blank all read as not industry).
  * - `"unknown"` — no CAMS record for this protocol number, so the
- *   question cannot be answered. The audit reports this as a mismatch
- *   rather than guessing; the contrast tool does the same.
+ *   question cannot be answered. Both tools flag this as No CAMS Match
+ *   rather than guessing.
  */
 export type IndustryStatus = "industry" | "government" | "unknown";
 
