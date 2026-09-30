@@ -81,14 +81,16 @@ function sourcesDisagree(row: ContrastRow): boolean {
   return row.saysIndustry.length > 0 && row.saysNotIndustry.length > 0;
 }
 
+// Billing constants, the same on every row: in the billing CSV, but not
+// on screen or in Export full table.
+const BILLING_ONLY_HEADERS = new Set(["lab", "sublab", "quantity", "bill"]);
+
 /** The columns after the billing columns: how the code was chosen, and
  * the mismatch flags. On screen, and in Export full table. */
 const reviewColumns: Column<ContrastRow>[] = [
   { header: "Suggested Code", get: (r) => r.suggestedCode },
-  { header: "Code Set By Hand", get: codeSetByHand },
   { header: "Says Industry", get: (r) => r.saysIndustry.join(" + ") },
   { header: "Says Not Industry", get: (r) => r.saysNotIndustry.join(" + ") },
-  { header: "Sources Disagree", get: sourcesDisagree },
   { header: "REDCap CHOP", get: (r) => r.chop },
   { header: "Dogfish Event ID", get: (r) => r.dogfishEventId },
   { header: "MRI Service", get: (r) => r.mriService, wrap: true },
@@ -150,7 +152,7 @@ export function renderContrastPage(app: HTMLElement): void {
             <button class="secondary" id="export-full">Export full table</button>
           </div>
         </div>
-        <p class="table-note">Export billing CSV writes the billing columns (<code>date</code> to <code>bill</code>) with the code chosen in the table. It stays off until every row has a code: a row whose sources have no answer starts with none. Export full table writes every column.</p>
+        <p class="table-note">Export billing CSV writes the billing columns (<code>date</code> to <code>bill</code>) with the code chosen in the table. It stays off until every row has a code: a row whose sources have no answer starts with none. Export full table writes the table as shown.</p>
         <div class="table-wrap" id="contrast-table"></div>
         ${renderRuleExplanations(CONTRAST_RULE_EXPLANATIONS)}
       </div>
@@ -319,21 +321,16 @@ export function renderContrastPage(app: HTMLElement): void {
 
   let lastRows: ContrastRow[] = [];
 
-  // The Code Set By Hand cell of each row on screen, redrawn when the
-  // row's code changes. Each render of the table replaces them.
-  const handSetCells = new Map<ContrastRow, HTMLElement>();
-
-  const codeColumn = billingColumns.find((c) => c.header === "code")!;
-  const handSetColumn = reviewColumns.find(
-    (c) => c.header === "Code Set By Hand"
-  )!;
+  // The table on screen, which Export full table also writes: the
+  // billing columns without the constants, with a drop-down for the
+  // code, then the review columns.
   const tableColumns: Column<ContrastRow>[] = [
-    ...billingColumns.map((col) =>
-      col === codeColumn ? { ...col, render: renderCodeSelect } : col
-    ),
-    ...reviewColumns.map((col) =>
-      col === handSetColumn ? { ...col, render: renderHandSetCell } : col
-    ),
+    ...billingColumns
+      .filter((col) => !BILLING_ONLY_HEADERS.has(col.header))
+      .map((col) =>
+        col.header === "code" ? { ...col, render: renderCodeSelect } : col
+      ),
+    ...reviewColumns,
   ];
 
   function renderCodeSelect(row: ContrastRow): Node {
@@ -351,19 +348,9 @@ export function renderContrastPage(app: HTMLElement): void {
     select.addEventListener("change", () => {
       row.code = select.value as ContrastCode | "";
       select.classList.toggle("needs-code", row.code === "");
-      const cell = handSetCells.get(row);
-      if (cell) cell.textContent = codeSetByHand(row) ? "✓" : "";
       refreshCount();
     });
     return select;
-  }
-
-  function renderHandSetCell(row: ContrastRow): Node {
-    const cell = document.createElement("span");
-    cell.className = "hand-set";
-    cell.textContent = codeSetByHand(row) ? "✓" : "";
-    handSetCells.set(row, cell);
-    return cell;
   }
 
   function refreshCount(): void {
@@ -415,7 +402,6 @@ export function renderContrastPage(app: HTMLElement): void {
       lastRows = result.rows;
 
       renderSkippedRows(result.skippedNoMeds, result.skippedNoTechMatch);
-      handSetCells.clear();
       renderTable(
         "contrast-table",
         tableColumns,
