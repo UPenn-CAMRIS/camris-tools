@@ -38,17 +38,25 @@ export function decisionTableUi<T>(
   decisions: Map<string, Decision>,
   context: DecisionContext
 ): DecisionTableUi<T> {
-  let refreshers = new Map<string, (() => void)[]>();
+  let refreshers = new Map<string, { cell: Node; refresh: () => void }[]>();
 
-  function register(key: string, refresh: () => void): void {
+  function register(key: string, cell: Node, refresh: () => void): void {
     refresh();
     const list = refreshers.get(key);
-    if (list) list.push(refresh);
-    else refreshers.set(key, [refresh]);
+    if (list) list.push({ cell, refresh });
+    else refreshers.set(key, [{ cell, refresh }]);
+  }
+
+  /** Redraws the key's cells that are still on the page, and forgets the
+   * rest: re-sorting a table draws its cells again without a reset(). */
+  function redraw(key: string): void {
+    const live = (refreshers.get(key) ?? []).filter((r) => r.cell.isConnected);
+    refreshers.set(key, live);
+    for (const { refresh } of live) refresh();
   }
 
   function changed(key: string): void {
-    for (const refresh of refreshers.get(key) ?? []) refresh();
+    redraw(key);
     context.onChange();
   }
 
@@ -80,7 +88,7 @@ export function decisionTableUi<T>(
       );
       changed(key);
     });
-    register(key, () => {
+    register(key, select, () => {
       const decision = decisions.get(key);
       select.value = decision?.value ?? "";
       select.disabled = noReviewer();
@@ -108,7 +116,7 @@ export function decisionTableUi<T>(
       );
       changed(key);
     });
-    register(key, () => {
+    register(key, input, () => {
       const decision = decisions.get(key);
       input.value = decision?.reason ?? "";
       input.disabled = !decision || noReviewer();
@@ -143,7 +151,7 @@ export function decisionTableUi<T>(
           changed(key);
         });
       }
-      register(key, () => {
+      register(key, cell, () => {
         if (confirmButton && decisions.get(key)?.unconfirmed) {
           confirmButton.disabled = noReviewer();
           confirmButton.title = confirmButton.disabled ? NO_REVIEWER_HINT : "";
@@ -162,9 +170,7 @@ export function decisionTableUi<T>(
       refreshers = new Map();
     },
     refreshAll: () => {
-      for (const list of refreshers.values()) {
-        for (const refresh of list) refresh();
-      }
+      for (const key of refreshers.keys()) redraw(key);
     },
   };
 }

@@ -45,7 +45,7 @@ import {
   renderSanityChecks,
   renderCsvWarnings,
 } from "../uploadUi";
-import { renderTable } from "../table";
+import { renderTable, sortedRows } from "../table";
 import { renderPageNav } from "../nav";
 import {
   DECISION_KEYS,
@@ -1038,52 +1038,102 @@ export function renderAuditPage(
     }
   }
 
-  /** Every results table as CSV, in the order the page shows them. */
+  /** A table's CSV text, with its rows in the order the table shows them. */
+  function tableCsv<T>(
+    tableId: string,
+    columns: Column<T>[],
+    rows: T[]
+  ): string {
+    return toCsv(columns, sortedRows(tableId, columns, rows));
+  }
+
+  /** Every results table as CSV, in the order the page shows them, each
+   * with its rows sorted as they are on screen. */
   function reportFiles(): ReportFile[] {
     return [
       {
         filename: DECISION_REPORT_FILES.protocolIssues,
-        csv: toCsv(protocolIssueColumns, lastResult.protocolIssues),
+        csv: tableCsv(
+          "protocol-issues-table",
+          protocolIssueColumns,
+          lastResult.protocolIssues
+        ),
       },
       {
         filename: "audit_violations.csv",
-        csv: toCsv(violationIssueColumns, lastResult.violationIssues),
+        csv: tableCsv(
+          "violation-issues-table",
+          violationIssueColumns,
+          lastResult.violationIssues
+        ),
       },
       {
         filename: DECISION_REPORT_FILES.mismatches,
-        csv: toCsv(mismatchColumns, lastResult.dedupedMismatches),
+        csv: tableCsv(
+          "mismatches-table",
+          mismatchColumns,
+          lastResult.dedupedMismatches
+        ),
       },
       {
         filename: DECISION_REPORT_FILES.prodevConsistency,
-        csv: toCsv(prodevConsistencyColumns, lastResult.prodevConsistencyIssues),
+        csv: tableCsv(
+          "prodev-consistency-table",
+          prodevConsistencyColumns,
+          lastResult.prodevConsistencyIssues
+        ),
       },
       {
         filename: "addons_without_mri.csv",
-        csv: toCsv(addOnColumns, lastResult.addOnsWithoutMri),
+        csv: tableCsv(
+          "addons-table",
+          addOnColumns,
+          lastResult.addOnsWithoutMri
+        ),
       },
       {
         filename: "excess_late_cancellations.csv",
-        csv: toCsv(lateCancellationColumns, lastResult.excessLateCancellations),
+        csv: tableCsv(
+          "late-cancellations-table",
+          lateCancellationColumns,
+          lastResult.excessLateCancellations
+        ),
       },
       {
         filename: "no_shows_on_prodev_protocols.csv",
-        csv: toCsv(noShowProdevColumns, lastResult.noShowsOnProdevProtocols),
+        csv: tableCsv(
+          "no-show-prodev-table",
+          noShowProdevColumns,
+          lastResult.noShowsOnProdevProtocols
+        ),
       },
       {
         filename: "fees_on_external_protocols.csv",
-        csv: toCsv(externalFeeColumns, lastResult.feesOnExternalProtocols),
+        csv: tableCsv(
+          "external-fees-table",
+          externalFeeColumns,
+          lastResult.feesOnExternalProtocols
+        ),
       },
       {
         filename: `${TARGET_SCANNER.toLowerCase()}_scanner_events.csv`,
-        csv: toCsv(scannerEventColumns, lastResult.scannerEvents),
+        csv: tableCsv(
+          "scanner-events-table",
+          scannerEventColumns,
+          lastResult.scannerEvents
+        ),
       },
       {
         filename: DECISION_REPORT_FILES.humanMriExternal,
-        csv: toCsv(humanMriExternalColumns, lastResult.humanMriExternalEvents),
+        csv: tableCsv(
+          "human-mri-external-table",
+          humanMriExternalColumns,
+          lastResult.humanMriExternalEvents
+        ),
       },
       {
         filename: EARLIER_DECISIONS_FILE,
-        csv: toCsv(earlierColumns, earlierRows),
+        csv: tableCsv("earlier-table", earlierColumns, earlierRows),
       },
     ];
   }

@@ -13,7 +13,7 @@ import {
 } from "../sanityChecks";
 import { toCsv, downloadCsv, type Column } from "../csvExport";
 import { setStatus, setCount, renderSanityChecks, renderCsvWarnings } from "../uploadUi";
-import { renderTable } from "../table";
+import { renderTable, sortedRows } from "../table";
 import { renderPageNav } from "../nav";
 
 type SlotKey = "contrastReport" | "technologists" | "cams";
@@ -299,10 +299,19 @@ export function renderContrastPage(app: HTMLElement): void {
   });
 
   document.getElementById("export-contrast")!.addEventListener("click", () => {
-    downloadCsv("contrast_output.csv", toCsv(contrastColumns, lastRows));
+    downloadCsv(
+      "contrast_output.csv",
+      toCsv(contrastColumns, sortedRows("contrast-table", contrastColumns, lastRows))
+    );
   });
 
   document.getElementById("export-mismatches")!.addEventListener("click", () => {
-    downloadCsv("contrast_mismatches.csv", toCsv(mismatchColumns, lastMismatches));
+    downloadCsv(
+      "contrast_mismatches.csv",
+      toCsv(
+        mismatchColumns,
+        sortedRows("mismatch-table", mismatchColumns, lastMismatches)
+      )
+    );
   });
 }
