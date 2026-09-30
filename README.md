@@ -431,9 +431,43 @@ exercise both tools' logic from Node without a browser.
 
 ## Design decisions and constraints
 
-Read this before you change `audit.ts`, `cams.ts`, `sanityChecks.ts`, or how
-a Dogfish service is recognized. It states rules that are easy to break by
-accident.
+Read this before you change `audit.ts`, `cams.ts`, `sanityChecks.ts`,
+`savedAudit.ts`, `decisions.ts`, `previousAudit.ts`, or how a Dogfish service
+is recognized. It states rules that are easy to break by accident.
+
+### Every saved audit must still open
+
+A saved audit zip is the dated record of an audit, and people keep it. Every
+saved audit that any earlier version of the tool wrote must open in every
+later version, with its inputs, row corrections, decisions, and previous
+audit comparison. Never make a change that stops an old saved audit from
+opening, or opens it with something lost, even when the format changes.
+
+A change to the format is any change to what is in the zip or how it is
+read back: the manifest's fields, the file paths, the CSV files' column
+headers, the columns in `DECISION_KEY_COLUMNS`, the text that goes into a
+decision key (for example an issue label in `audit.ts`), and the decision
+values. For such a change:
+
+- Increase `SAVED_AUDIT_FORMAT_VERSION` in `savedAudit.ts`, and say in its
+  comment what the new version changed.
+- Keep the reader for every earlier version. Read an old file, then convert
+  what it holds to the current form in memory. Do not remove support for an
+  old version.
+- A new field or file is optional when the reader reads it, with a default
+  for files that do not have it.
+- When a name that is read back changes (a column header, an issue label, a
+  decision value), the reader accepts the old name too, and maps it to the
+  new one. A column that nothing reads back (for example Since Previous
+  Audit, headed This Audit in older files) can change without this.
+- Add a test that opens a file of each earlier version and checks what it
+  restores.
+- If part of an old file cannot be restored, because a rule or table no
+  longer exists, open the file and tell the user what was not carried. Do
+  not refuse the file.
+
+The tool refuses only a file that is not a saved audit, is damaged, or was
+saved by a newer version of the tool.
 
 ### Add a new Dogfish service here, not there
 
@@ -574,7 +608,8 @@ must be the one place the decisions are kept.
 A decision key is stored in the saved audit's CSV columns, so a later audit
 can match decisions to its rows. If you rename an issue label in `audit.ts`
 or change what a table's key is made of, decisions saved before the change
-will no longer match.
+will no longer match unless the reader maps the old key to the new one. See
+[Every saved audit must still open](#every-saved-audit-must-still-open).
 
 ### `exceljs`, not `xlsx`/SheetJS
 
