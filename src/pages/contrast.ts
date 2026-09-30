@@ -85,17 +85,41 @@ function sourcesDisagree(row: ContrastRow): boolean {
 // on screen or in Export full table.
 const BILLING_ONLY_HEADERS = new Set(["lab", "sublab", "quantity", "bill"]);
 
+/** A list of sources on screen, one on each line, so the column is only
+ * as wide as the longest source name. The CSV joins them with " + ". */
+function sourceLines(sources: readonly string[]): Node {
+  const cell = document.createElement("span");
+  sources.forEach((source, i) => {
+    if (i > 0) cell.appendChild(document.createElement("br"));
+    cell.appendChild(document.createTextNode(source));
+  });
+  return cell;
+}
+
 /** The columns after the billing columns: how the code was chosen. On
  * screen, and in Export full table. */
 const reviewColumns: Column<ContrastRow>[] = [
   { header: "Suggested Code", get: (r) => r.suggestedCode },
-  { header: "Says Industry", get: (r) => r.saysIndustry.join(" + ") },
-  { header: "Says Not Industry", get: (r) => r.saysNotIndustry.join(" + ") },
+  {
+    header: "Says Industry",
+    get: (r) => r.saysIndustry.join(" + "),
+    render: (r) => sourceLines(r.saysIndustry),
+  },
+  {
+    header: "Says Not Industry",
+    get: (r) => r.saysNotIndustry.join(" + "),
+    render: (r) => sourceLines(r.saysNotIndustry),
+  },
   { header: "REDCap CHOP", get: (r) => r.chop },
   { header: "Dogfish Event ID", get: (r) => r.dogfishEventId },
   { header: "MRI Service", get: (r) => r.mriService, wrap: true },
   { header: "Invalid Protocol Format", get: (r) => r.invalidProtocolFormat },
-  { header: "Procedure-Related Meds", get: (r) => r.meds, wrap: true },
+  {
+    header: "Procedure-Related Meds",
+    get: (r) => r.meds,
+    wrap: true,
+    wide: true,
+  },
 ];
 
 export function renderContrastPage(app: HTMLElement): void {
@@ -138,7 +162,7 @@ export function renderContrastPage(app: HTMLElement): void {
     <div id="error-banner" class="error-banner" style="display: none;"></div>
 
     <div id="results" class="results">
-      <div id="skipped-rows"></div>
+      <div id="skipped-rows" class="skipped-rows"></div>
       <div class="results-section">
         <div class="results-section-header">
           <h2>Contrast Injection Rows <span class="count" id="contrast-row-count"></span></h2>
