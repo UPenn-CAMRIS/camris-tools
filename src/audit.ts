@@ -777,7 +777,7 @@ export function buildRedcapLookup(redcapRows: CsvRow[]): RedcapLookupResult {
         [...owner.names].every((n) => nameSet.has(n));
 
       if (owner !== undefined && !sameRow && !sameNameSet) {
-        const collisionKey = [owner.rawIrb, rawIrb].sort().join(" ") + " " + name;
+        const collisionKey = [owner.rawIrb, rawIrb].sort().join("\u0000") + "\u0000" + name;
         if (!reportedCollisions.has(collisionKey)) {
           reportedCollisions.add(collisionKey);
           collisions.push({ name, protocolFields: [owner.rawIrb, rawIrb] });
