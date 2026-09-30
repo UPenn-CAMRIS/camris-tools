@@ -106,6 +106,69 @@ export const MISMATCH_RULE_EXPLANATIONS: RuleExplanation[] = [
   },
 ];
 
+export const CONTRAST_RULE_EXPLANATIONS: RuleExplanation[] = [
+  {
+    label: "code",
+    description:
+      'The code to bill: CAMRIS-051 for an industry-sponsored protocol, CAMRIS-003 otherwise. It starts as the Suggested Code, and you can change it. A CHOP study that is not industry sponsored is CAMRIS-003: CHOP studies pay the standard rate for contrast, as for the Stimulus and Reader fees.',
+  },
+  {
+    label: "Suggested Code",
+    description:
+      "The code most of the sources that answer point to (see Says Industry). When two sources answer and disagree, the MRI service wins, then CAMS. When no source answers, there is no suggested code, and you must choose one.",
+  },
+  {
+    label: "Code Set By Hand",
+    description:
+      "The code was changed in the table from the Suggested Code. Generating the output again discards codes set by hand.",
+  },
+  {
+    label: "Says Industry, Says Not Industry",
+    description:
+      'The sources that say the protocol is, or is not, industry sponsored. Each is read the way the Audit Tool reads it. MRI service: the MRI rate Dogfish billed for the same scan. Human MRI (Industry/CHOP) or Animal MRI (Industry/CHOP) says industry, and any other MRI rate says not industry. The external rate, Human MRI (industry/external), gives no answer, because it serves external users whether or not they are industry. The Industry/CHOP rate on a CHOP study also gives no answer, because a non-industry CHOP study is billed at it too. CAMS: "Industry Sponsored" is "Yes" for industry; any other value is not industry. REDCap: funding type 1 or 4 is industry; any other code is not industry. A source with no answer is in neither column.',
+  },
+  {
+    label: "Sources Disagree",
+    description:
+      "At least one source says industry and at least one says not industry. The Suggested Code follows the majority, but check the row: the fix may belong in the billing or in a source's data.",
+  },
+  {
+    label: "REDCap CHOP",
+    description:
+      "REDCap marks the study as CHOP (the PI's school). This changes only how the MRI service is read, as described above.",
+  },
+  {
+    label: "Dogfish Event ID, MRI Service",
+    description:
+      "The Dogfish event matched to this scan, and the MRI services billed on it. The Contrast Report has no Event ID, so the match is by protocol and time: an event that billed an MRI service, on the same protocol number (normalized the way the audit normalizes it) on the date of Begin Exam Time, with the Scan Time nearest to Begin Exam Time.",
+  },
+  {
+    label: "No Dogfish MRI Match",
+    description:
+      "No Dogfish event billed an MRI service on this protocol on this date, so the MRI service has no answer. The Dogfish upload may not cover this date, or the scan was billed under a different protocol number.",
+  },
+  {
+    label: "No CAMS Match",
+    description:
+      "The protocol number could not be found in the CAMS data, so CAMS has no answer. As in the audit.",
+  },
+  {
+    label: "No Active REDCap Match",
+    description:
+      'No REDCap record with a completed review letter ("camris_review_letter_complete" = Complete) was found for this protocol, so REDCap has no answer. As in the audit.',
+  },
+  {
+    label: "No REDCap Funding Type",
+    description:
+      'The protocol has an active REDCap record, but its funding type ("funding_type") is blank, so REDCap has no answer. As in the audit.',
+  },
+  {
+    label: "Invalid Protocol Format",
+    description:
+      'The Linked Study IRB Number does not match any expected format: a plain 6-digit number, "AR" followed by 6 digits, or "xx-xxxx" (2 digits, hyphen, 4 digits). A blank number is flagged too. As in the audit, this is a data-quality note; matching still uses the number as written.',
+  },
+];
+
 export const PRODEV_RULE_EXPLANATIONS: RuleExplanation[] = [
   {
     label: "Prodev Service Without Suffix",

@@ -44,6 +44,7 @@ import {
   setCountText,
   renderSanityChecks,
   renderCsvWarnings,
+  renderRedcapCollisions,
 } from "../uploadUi";
 import { renderTable, sortedRows } from "../table";
 import { renderPageNav } from "../nav";
@@ -434,36 +435,10 @@ export function renderAuditPage(
       missingAFile || hasBlockingSanityIssue || redcapCollisions.length > 0;
   }
 
-  /** REDCap's protocol field can name a protocol more than one way (see
-   * buildRedcapLookup). A name shared between two rows that otherwise
-   * disagree is a data problem, not a normal resubmission — this blocks
-   * the audit the same as a missing required column. */
-  function renderRedcapCollisions(collisions: RedcapNameCollision[]): void {
-    const container = document.getElementById("redcap-collisions")!;
-    container.innerHTML = "";
+  /** Shows the REDCap name collisions, which block the audit. */
+  function showRedcapCollisions(collisions: RedcapNameCollision[]): void {
     redcapCollisions = collisions;
-    if (collisions.length === 0) return;
-
-    const box = document.createElement("div");
-    box.className = "detail-box sanity-blocking";
-
-    const title = document.createElement("p");
-    title.className = "sanity-blocking-title";
-    title.textContent = `This file has ${collisions.length} protocol identifier${
-      collisions.length === 1 ? "" : "s"
-    } shared between rows that otherwise look like different protocols.`;
-    box.appendChild(title);
-
-    const list = document.createElement("ul");
-    for (const collision of collisions) {
-      const li = document.createElement("li");
-      const [a, b] = collision.protocolFields;
-      li.textContent = `"${collision.name}" appears in both "${a}" and "${b}". Check REDCap for a typo or an accidental cross-reference to a different protocol.`;
-      list.appendChild(li);
-    }
-    box.appendChild(list);
-
-    container.appendChild(box);
+    renderRedcapCollisions("redcap-collisions", collisions);
   }
 
   /** Updates the status line and warnings box for `key` from whatever is
@@ -500,7 +475,7 @@ export function renderAuditPage(
     }
 
     if (key === "redcap") {
-      renderRedcapCollisions(
+      showRedcapCollisions(
         hasBlockingIssues(sanityResult)
           ? []
           : buildRedcapLookup(parsed.rows).collisions
@@ -544,7 +519,7 @@ export function renderAuditPage(
       loadedFiles.delete(slot.key);
       renderSanityChecks(slot.key, undefined, FILE_SCHEMAS[slot.key]);
       renderCsvWarnings(slot.key, undefined, () => {});
-      if (slot.key === "redcap") renderRedcapCollisions([]);
+      if (slot.key === "redcap") showRedcapCollisions([]);
 
       try {
         const bytes = new Uint8Array(await file.arrayBuffer());
@@ -554,7 +529,7 @@ export function renderAuditPage(
         renderSanityChecks(slot.key, undefined, FILE_SCHEMAS[slot.key]);
         setStatus(slot.key, `Failed to read ${file.name}`);
         showError(err instanceof Error ? err.message : String(err));
-        if (slot.key === "redcap") renderRedcapCollisions([]);
+        if (slot.key === "redcap") showRedcapCollisions([]);
       }
 
       updateRunButtonState();
