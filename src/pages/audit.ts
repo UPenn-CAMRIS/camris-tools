@@ -74,7 +74,6 @@ import {
   AUDIT_INPUT_KEYS,
   DECISION_REPORT_FILES,
   EARLIER_DECISIONS_FILE,
-  PREVIOUS_AUDIT_FILES,
   buildSavedAudit,
   localDate,
   localTimestamp,
@@ -230,14 +229,11 @@ interface OpenedSavedAudit {
 }
 
 /** Renders the Audit Tool page in `mode`. `opened`, in "open" mode, is a
- * saved audit to show as soon as the page is ready. `startingPrevious`,
- * in "new" mode, is the previous audit to start with: the audit that was
- * open when "Start next audit from this one" was clicked. */
+ * saved audit to show as soon as the page is ready. */
 export function renderAuditPage(
   app: HTMLElement,
   mode: AuditMode = "new",
-  opened?: OpenedSavedAudit,
-  startingPrevious?: PreviousAudit
+  opened?: OpenedSavedAudit
 ): void {
   const loadedFiles = new Map<FileSlot["key"], ParsedCsv>();
   const loadedFilenames = new Map<FileSlot["key"], string>();
@@ -324,7 +320,6 @@ export function renderAuditPage(
       <div class="save-bar">
         <button id="save-audit">Save audit (.zip)</button>
         <span class="save-status" id="save-status"></span>
-        <button type="button" class="secondary" id="next-audit">Start next audit from this one</button>
       </div>
       <p class="table-note save-note">The saved audit holds the three input files as uploaded, any row corrections made here, and every table below with its decisions. Store it with the same care as the exports themselves.</p>
 
@@ -589,9 +584,6 @@ export function renderAuditPage(
   // last save.
   let unsaved = false;
   let lastSaved: { filename: string; at: Date } | null = null;
-  // The initials in the last saved file: this page's save, or the saved
-  // audit opened on it.
-  let lastSavedBy = "";
 
   // The previous audit, for reference, and what this audit has done with
   // it. `considered` holds each table's keys whose previous decision was
@@ -1248,31 +1240,7 @@ export function renderAuditPage(
     downloadBlob(filename, new Blob([bytes], { type: "application/zip" }));
     unsaved = false;
     lastSaved = { filename, at: now };
-    lastSavedBy = reviewerInput.value.trim();
     refreshSaveStatus();
-  });
-
-  // Starts a new audit with this one as its previous audit: its decision
-  // files as they stand now, saved or not.
-  document.getElementById("next-audit")!.addEventListener("click", () => {
-    if (!lastRun || !auditId || !confirmLeave()) return;
-    const reports = new Map(
-      reportFiles()
-        .filter((f) => PREVIOUS_AUDIT_FILES.includes(f.filename))
-        .map((f) => [f.filename, f.csv] as const)
-    );
-    const saved = !unsaved && lastSaved !== null;
-    const previous = readPreviousAudit(
-      {
-        auditId,
-        savedAt: localTimestamp(saved ? lastSaved!.at : new Date()),
-        savedBy: saved ? lastSavedBy : reviewerInput.value.trim(),
-        dogfishScanRange: lastRun.dogfishScanRange,
-        removedDecisions: [],
-      },
-      reports
-    );
-    renderAuditPage(app, "new", undefined, previous);
   });
 
   for (const tab of app.querySelectorAll<HTMLButtonElement>(".mode-tab")) {
@@ -1298,7 +1266,6 @@ export function renderAuditPage(
     }
     auditId = manifest.auditId;
     createdAt = manifest.createdAt;
-    lastSavedBy = manifest.savedBy;
     previousAudit = prepared.previous;
     considered = prepared.considered;
     removedDecisions = prepared.previous?.record.removedDecisions ?? [];
@@ -1418,6 +1385,5 @@ export function renderAuditPage(
         `${file.name} — saved ${describeTime(new Date(savedAt))}${savedBy ? ` by ${savedBy}` : ""}`
       );
     });
-    if (startingPrevious) usePrevious(startingPrevious, "The audit you had open");
   }
 }

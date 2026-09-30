@@ -43,14 +43,6 @@ export const DECISION_REPORT_FILES: Record<DecisionTableId, string> = {
  * flag. */
 export const EARLIER_DECISIONS_FILE = "earlier_decisions_not_flagged.csv";
 
-/** The CSV files of a previous audit that the next audit reads: the four
- * decision tables and the earlier decisions. A version-1 file has no
- * earlier decisions. */
-export const PREVIOUS_AUDIT_FILES = [
-  ...Object.values(DECISION_REPORT_FILES),
-  EARLIER_DECISIONS_FILE,
-];
-
 /** The most a saved audit may hold once unpacked. A month of exports is a
  * few MB; the limit stops a damaged or wrong file from hanging the page. */
 export const MAX_SAVED_AUDIT_BYTES = 200 * 1024 * 1024;
@@ -135,8 +127,8 @@ export interface SavedAuditDetails {
   dogfishScanRange: ScanRange | null;
   inputs: Record<AuditInputKey, AuditInputFile>;
   reports: ReportFile[];
-  /** The previous audit, with its CSV files as PREVIOUS_AUDIT_FILES names
-   * them; null when there is none. */
+  /** The previous audit, with the CSV files it was read from; null when
+   * there is none. */
   previous: { record: PreviousAuditRecord; reports: ReportFile[] } | null;
 }
 

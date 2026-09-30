@@ -256,9 +256,9 @@ again.
 
 ### Using a previous audit
 
-A new audit can be compared with a previous one: upload its saved zip in the
-optional **Previous Audit** slot, or click **Start next audit from this one**
-on an audit that is open (`previousAudit.ts`). Then:
+A new audit can be compared with a previous one: save the previous audit
+with **Save audit (.zip)**, click **Start a new audit**, and upload that zip
+in the optional **Previous Audit** slot (`previousAudit.ts`). Then:
 
 - The four decision tables get a **Since Previous Audit** column: `New`,
   `Flagged again`, `Flagged again, source changed (was CAMS)` (Violations by
