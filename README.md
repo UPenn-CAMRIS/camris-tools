@@ -355,14 +355,15 @@ constants `lab`, `sublab`, `quantity`, and `bill`, which are the same on
 every row and only go in the billing CSV. The `code` cell is a drop-down,
 set to the suggested code, that a person can change. The columns after the
 billing columns show how the code was chosen: Suggested Code, Says Industry
-and Says Not Industry (the sources on each side; when both name a
-source, the sources disagree), REDCap CHOP, and the matched Dogfish Event
-ID and MRI Service. Then come the audit's mismatch flags, with the same
-meaning as on the audit's Mismatches table (No CAMS Match, No Active REDCap
-Match, No REDCap Funding Type, Invalid Protocol Format), plus No Dogfish MRI
-Match. A row with a mismatch is still in the table, with the code its other
-sources suggest. The count above the table says how many rows need a code,
-have sources that disagree, and have a code set by hand.
+and Says Not Industry (the sources on each side; when both columns name a
+source, the sources disagree), REDCap CHOP, the matched Dogfish Event ID and
+MRI Service, and Invalid Protocol Format, which means the same as on the
+audit's Mismatches table. A source with no answer is in neither Says
+column: the MRI service when no Dogfish event matched, CAMS when the
+protocol is not in CAMS, and REDCap when the protocol has no active REDCap
+record or its funding type is blank. The count above the table says how
+many rows need a code, have sources that disagree, and have a code set by
+hand.
 
 **Export billing CSV** writes only the billing columns (`date` to `bill`,
 constants included), with the code chosen in the table, in the order on

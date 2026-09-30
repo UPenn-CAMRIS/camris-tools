@@ -120,7 +120,7 @@ export const CONTRAST_RULE_EXPLANATIONS: RuleExplanation[] = [
   {
     label: "Says Industry, Says Not Industry",
     description:
-      'The sources that say the protocol is, or is not, industry sponsored. Each is read the way the Audit Tool reads it. MRI service: the MRI rate Dogfish billed for the same scan. Human MRI (Industry/CHOP) or Animal MRI (Industry/CHOP) says industry, and any other MRI rate says not industry. The external rate, Human MRI (industry/external), gives no answer, because it serves external users whether or not they are industry. The Industry/CHOP rate on a CHOP study also gives no answer, because a non-industry CHOP study is billed at it too. CAMS: "Industry Sponsored" is "Yes" for industry; any other value is not industry. REDCap: funding type 1 or 4 is industry; any other code is not industry. A source with no answer is in neither column. When both columns name a source, the sources disagree: the Suggested Code follows the majority, but check the row, because the fix may belong in the billing or in a source\'s data.',
+      'The sources that say the protocol is, or is not, industry sponsored. Each is read the way the Audit Tool reads it. MRI service: the MRI rate Dogfish billed for the same scan. Human MRI (Industry/CHOP) or Animal MRI (Industry/CHOP) says industry, and any other MRI rate says not industry. The external rate, Human MRI (industry/external), gives no answer, because it serves external users whether or not they are industry. The Industry/CHOP rate on a CHOP study also gives no answer, because a non-industry CHOP study is billed at it too. CAMS: "Industry Sponsored" is "Yes" for industry; any other value is not industry. REDCap: funding type 1 or 4 is industry; any other code is not industry. A source with no answer is in neither column: the MRI service when no Dogfish event matched, CAMS when the protocol is not in CAMS, and REDCap when the protocol has no REDCap record with a completed review letter, or its funding type is blank. When both columns name a source, the sources disagree: the Suggested Code follows the majority, but check the row, because the fix may belong in the billing or in a source\'s data.',
   },
   {
     label: "REDCap CHOP",
@@ -130,27 +130,7 @@ export const CONTRAST_RULE_EXPLANATIONS: RuleExplanation[] = [
   {
     label: "Dogfish Event ID, MRI Service",
     description:
-      "The Dogfish event matched to this scan, and the MRI services billed on it. The Contrast Report has no Event ID, so the match is by protocol and time: an event that billed an MRI service, on the same protocol number (normalized the way the audit normalizes it) on the date of Begin Exam Time, with the Scan Time nearest to Begin Exam Time.",
-  },
-  {
-    label: "No Dogfish MRI Match",
-    description:
-      "No Dogfish event billed an MRI service on this protocol on this date, so the MRI service has no answer. The Dogfish upload may not cover this date, or the scan was billed under a different protocol number.",
-  },
-  {
-    label: "No CAMS Match",
-    description:
-      "The protocol number could not be found in the CAMS data, so CAMS has no answer. As in the audit.",
-  },
-  {
-    label: "No Active REDCap Match",
-    description:
-      'No REDCap record with a completed review letter ("camris_review_letter_complete" = Complete) was found for this protocol, so REDCap has no answer. As in the audit.',
-  },
-  {
-    label: "No REDCap Funding Type",
-    description:
-      'The protocol has an active REDCap record, but its funding type ("funding_type") is blank, so REDCap has no answer. As in the audit.',
+      "The Dogfish event matched to this scan, and the MRI services billed on it. The Contrast Report has no Event ID, so the match is by protocol and time: an event that billed an MRI service, on the same protocol number (normalized the way the audit normalizes it) on the date of Begin Exam Time, with the Scan Time nearest to Begin Exam Time. Blank when no event matched: the Dogfish upload may not cover this date, or the scan was billed under a different protocol number.",
   },
   {
     label: "Invalid Protocol Format",
