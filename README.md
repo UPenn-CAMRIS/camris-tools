@@ -20,6 +20,15 @@ The suite has two tools, presented as separate pages behind one landing page:
 Both tools share the same upload/sanity-check/table UI, so they look and
 behave consistently.
 
+Every results table, in both tools, starts sorted by its first column, A to
+Z. Clicking a column header sorts by that column; clicking it again flips
+between A to Z and Z to A, shown by ▲ or ▼. Values are compared as text,
+the way the CSV writes them, so `10` sorts before `9`, and rows with the
+same value keep their order. Each table keeps its sort while the page is
+open, including when the audit is run again. A table's CSV export, and its
+CSV in a saved audit, has its rows in the same order as on screen
+(`sortedRows` in `table.ts`).
+
 ## Audit Tool
 
 Upload three CSV exports for the same period:
@@ -402,7 +411,8 @@ src/
   sanityChecks.ts        required-column and coded-value checks, shared by
                          both tools
   uploadUi.ts             shared upload-row / sanity-check / malformed-row UI
-  table.ts                 generic results-table renderer
+  table.ts                 generic results-table renderer, with
+                           click-to-sort column headers
   nav.ts                    the small "Home · other tool" nav bar
   leaveGuard.ts          asks before leaving a page with unsaved work
   decisions.ts           Fix / Don't fix decisions: the decision keys of
