@@ -66,9 +66,19 @@ export interface ParsedCsv {
   /** True when the file started with a byte-order mark. `rawText` has it
    * stripped; `correctedFileText` puts it back. */
   hasBom: boolean;
-  /** How many row corrections have changed this file's text since it was
-   * loaded. 0 for a file as loaded. */
-  correctionCount: number;
+  /** The row corrections that have changed this file's text since it was
+   * loaded, in the order they were applied. Empty for a file as loaded.
+   * Applying them again, in order, to the same loaded file rebuilds this
+   * text exactly. */
+  corrections: RowCorrection[];
+}
+
+/** One call of `applyRowCorrection` that changed the file's text. */
+export interface RowCorrection {
+  /** 0-based index into `rows`, at the time the correction was applied. */
+  rowIndex: number;
+  /** The corrected row text, as the user entered it. */
+  text: string;
 }
 
 function headerLineEnd(text: string): number {
@@ -94,7 +104,12 @@ function readHeaderFields(rawText: string, headerEnd: number): string[] {
  * leading byte-order mark. `Blob.text()` silently drops the mark, and
  * `parseCsv` needs to see it to put it back in a corrected copy. */
 export async function readCsvFile(file: Blob): Promise<string> {
-  const bytes = await file.arrayBuffer();
+  return decodeCsvBytes(new Uint8Array(await file.arrayBuffer()));
+}
+
+/** Decodes a file's bytes as UTF-8 text for `parseCsv`, the same way
+ * `readCsvFile` does, for a caller that also keeps the bytes. */
+export function decodeCsvBytes(bytes: Uint8Array): string {
   return new TextDecoder("utf-8", { ignoreBOM: true }).decode(bytes);
 }
 
@@ -138,7 +153,7 @@ export function parseCsv(text: string): ParsedCsv {
     rowSpans,
     fields,
     hasBom,
-    correctionCount: 0,
+    corrections: [],
   };
 }
 
@@ -297,7 +312,7 @@ export function applyRowCorrection(
   return {
     ...parseCsv(rebuilt),
     hasBom: parsed.hasBom,
-    correctionCount: parsed.correctionCount + 1,
+    corrections: [...parsed.corrections, { rowIndex, text: correctedText }],
   };
 }
 

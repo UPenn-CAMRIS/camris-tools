@@ -157,7 +157,7 @@ export function renderCsvWarnings(
   if (!source) return;
   const { parsed, filename } = source;
 
-  if (parsed.correctionCount > 0) {
+  if (parsed.corrections.length > 0) {
     container.appendChild(buildCorrectedDownloadBox(parsed, filename));
   }
 
@@ -198,7 +198,7 @@ function buildCorrectedDownloadBox(
   const box = document.createElement("div");
   box.className = "detail-box csv-corrected";
 
-  const count = parsed.correctionCount;
+  const count = parsed.corrections.length;
   const remaining = parsed.warnings.length;
   const message = document.createElement("p");
   message.className = "csv-corrected-message";

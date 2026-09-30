@@ -6,10 +6,11 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "test": "tsx test/run_test_set_1.ts && tsx test/run_contrast_test_set_1.ts && tsx test/run_audit_industry_suffix_checks.ts && tsx test/run_audit_late_cancellation_checks.ts && tsx test/run_audit_no_show_prodev_checks.ts && tsx test/run_audit_neuroreader_missed_checks.ts && tsx test/run_audit_new_services_checks.ts && tsx test/run_parse_csv_checks.ts && tsx test/run_audit_violation_issue_checks.ts && tsx test/run_audit_cams_redcap_checks.ts && tsx test/run_audit_external_protocol_fee_checks.ts"
+    "test": "tsx test/run_test_set_1.ts && tsx test/run_contrast_test_set_1.ts && tsx test/run_audit_industry_suffix_checks.ts && tsx test/run_audit_late_cancellation_checks.ts && tsx test/run_audit_no_show_prodev_checks.ts && tsx test/run_audit_neuroreader_missed_checks.ts && tsx test/run_audit_new_services_checks.ts && tsx test/run_parse_csv_checks.ts && tsx test/run_audit_violation_issue_checks.ts && tsx test/run_audit_cams_redcap_checks.ts && tsx test/run_audit_external_protocol_fee_checks.ts && tsx test/run_audit_decisions_checks.ts"
   },
   "dependencies": {
     "exceljs": "^4.4.0",
+    "fflate": "^0.8.3",
     "papaparse": "^5.4.1"
   },
   "devDependencies": {

@@ -1,4 +1,4 @@
-import { parseCsv, readCsvFile, type ParsedCsv } from "../parseCsv";
+import { decodeCsvBytes, parseCsv, type ParsedCsv } from "../parseCsv";
 import {
   runAudit,
   buildRedcapLookup,
@@ -11,7 +11,7 @@ import {
   hasBlockingIssues,
   FILE_SCHEMAS,
 } from "../sanityChecks";
-import { toCsv, downloadCsv, type Column } from "../csvExport";
+import { toCsv, downloadBlob, type Column } from "../csvExport";
 import type {
   AddOnWithoutMriRow,
   AuditResult,
@@ -42,9 +42,29 @@ import {
 } from "../uploadUi";
 import { renderTable } from "../table";
 import { renderPageNav } from "../nav";
+import {
+  DECISION_KEYS,
+  countNeedingDecision,
+  emptyDecisionStore,
+  type Decision,
+} from "../decisions";
+import { decisionTableUi, type DecisionContext } from "../decisionUi";
+import {
+  buildSavedAudit,
+  localDate,
+  localTimestamp,
+  newAuditId,
+  savedAuditFilename,
+  scanTimeRange,
+  type AuditInputFile,
+  type AuditInputKey,
+  type ReportFile,
+  type ScanRange,
+} from "../savedAudit";
+import { setLeaveGuard } from "../leaveGuard";
 
 interface FileSlot {
-  key: "dogfish" | "cams" | "redcap";
+  key: AuditInputKey;
   label: string;
   accept: string;
   formats: string;
@@ -59,6 +79,23 @@ function countOf(count: number, singular: string, plural: string): string {
   return `${count} ${count === 1 ? singular : plural}`;
 }
 
+/** A table's count text, followed by how many of its rows still need a
+ * decision, for example "12 · 3 need a decision". */
+function withDecisionCount(base: string, rows: number, needing: number): string {
+  if (rows === 0) return base;
+  const status =
+    needing === 0
+      ? "all decided"
+      : `${needing} ${needing === 1 ? "needs" : "need"} a decision`;
+  return `${base} · ${status}`;
+}
+
+/** The audit as it was last run: the inputs it ran on, for saving. */
+interface AuditRun {
+  inputs: Record<AuditInputKey, AuditInputFile>;
+  dogfishScanRange: ScanRange | null;
+}
+
 const SLOTS: FileSlot[] = [
   { key: "dogfish", label: "Dogfish Events", accept: ".csv", formats: "CSV file" },
   { key: "cams", label: "CAMS Data", accept: ".csv", formats: "CSV file" },
@@ -68,6 +105,8 @@ const SLOTS: FileSlot[] = [
 export function renderAuditPage(app: HTMLElement): void {
   const loadedFiles = new Map<FileSlot["key"], ParsedCsv>();
   const loadedFilenames = new Map<FileSlot["key"], string>();
+  // Each file exactly as uploaded, for the saved audit.
+  const loadedBytes = new Map<FileSlot["key"], Uint8Array>();
 
   app.innerHTML = `
     ${renderPageNav("audit")}
@@ -93,15 +132,26 @@ export function renderAuditPage(app: HTMLElement): void {
       ).join("")}
     </div>
 
-    <button id="run-audit" disabled>Run Audit</button>
+    <div class="run-row">
+      <button id="run-audit" disabled>Run Audit</button>
+      <label class="reviewer-field">
+        Your initials
+        <input type="text" id="reviewer-initials" maxlength="10" autocomplete="off" />
+      </label>
+    </div>
 
     <div id="error-banner" class="error-banner" style="display: none;"></div>
 
     <div id="results" class="results">
+      <div class="save-bar">
+        <button id="save-audit">Save audit (.zip)</button>
+        <span class="save-status" id="save-status"></span>
+      </div>
+      <p class="table-note save-note">The saved audit holds the three input files as uploaded, any row corrections made here, and every table below with its decisions. Store it with the same care as the exports themselves.</p>
+
       <div class="results-section">
         <div class="results-section-header">
           <h2>Violations by Protocol <span class="count" id="protocol-issue-count"></span></h2>
-          <button class="secondary" id="export-protocol-issues">Export CSV</button>
         </div>
         <div class="table-wrap" id="protocol-issues-table"></div>
         ${renderRuleExplanations(VIOLATION_RULE_EXPLANATIONS, VIOLATION_SUMMARY)}
@@ -110,7 +160,6 @@ export function renderAuditPage(app: HTMLElement): void {
       <div class="results-section">
         <div class="results-section-header">
           <h2>Violations by Event <span class="count" id="violation-issue-count"></span></h2>
-          <button class="secondary" id="export-violation-issues">Export CSV</button>
         </div>
         <div class="table-wrap" id="violation-issues-table"></div>
         ${renderRuleExplanations(VIOLATION_RULE_EXPLANATIONS, VIOLATION_SUMMARY)}
@@ -119,7 +168,6 @@ export function renderAuditPage(app: HTMLElement): void {
       <div class="results-section">
         <div class="results-section-header">
           <h2>Mismatches <span class="count" id="mismatch-count"></span></h2>
-          <button class="secondary" id="export-mismatches">Export CSV</button>
         </div>
         <div class="table-wrap" id="mismatches-table"></div>
         ${renderRuleExplanations(MISMATCH_RULE_EXPLANATIONS)}
@@ -128,7 +176,6 @@ export function renderAuditPage(app: HTMLElement): void {
       <div class="results-section">
         <div class="results-section-header">
           <h2>Prodev Naming Consistency <span class="count" id="prodev-consistency-count"></span></h2>
-          <button class="secondary" id="export-prodev-consistency">Export CSV</button>
         </div>
         <div class="table-wrap" id="prodev-consistency-table"></div>
         ${renderRuleExplanations(PRODEV_RULE_EXPLANATIONS)}
@@ -137,7 +184,6 @@ export function renderAuditPage(app: HTMLElement): void {
       <div class="results-section">
         <div class="results-section-header">
           <h2>Add-On Fees Without MRI <span class="count" id="addon-count"></span></h2>
-          <button class="secondary" id="export-addons">Export CSV</button>
         </div>
         <div class="table-wrap" id="addons-table"></div>
         <p class="table-note">Events billed for a Stimulus/Response Equipment and/or Neuroreader (Research Report Reader) fee with no MRI service code on the same event — these fees are meant to accompany a scan, so one alone is a data-quality flag independent of the CAMS/REDCap checks.</p>
@@ -146,7 +192,6 @@ export function renderAuditPage(app: HTMLElement): void {
       <div class="results-section">
         <div class="results-section-header">
           <h2>Excess Late Cancellations <span class="count" id="late-cancellation-count"></span></h2>
-          <button class="secondary" id="export-late-cancellations">Export CSV</button>
         </div>
         <div class="table-wrap" id="late-cancellations-table"></div>
         <p class="table-note">Each protocol is allowed ${LATE_CANCELLATION_ALLOWANCE} late cancellation events ("${NO_SHOW_SERVICE}") per calendar month, the month taken from Scan Time. Once a protocol goes past that in a month, every later cancellation event that month is listed here — one row per event, with its Event ID. Events are ordered by Scan Time then Event ID, so the first ${LATE_CANCELLATION_ALLOWANCE} in the month are the ones treated as within allowance. Protocols are grouped by their exact Dogfish Protocol Number (no normalization).</p>
@@ -155,7 +200,6 @@ export function renderAuditPage(app: HTMLElement): void {
       <div class="results-section">
         <div class="results-section-header">
           <h2>No-Shows Billed To Prodev Protocols <span class="count" id="no-show-prodev-count"></span></h2>
-          <button class="secondary" id="export-no-show-prodev">Export CSV</button>
         </div>
         <div class="table-wrap" id="no-show-prodev-table"></div>
         <p class="table-note">Every "${NO_SHOW_SERVICE}" event on a Prodev protocol — one row per event, with its Event ID. A protocol counts as Prodev when its number ends with "-P", "_P", or "Prodev", or when another event in this upload billed that exact protocol number at a Prodev tier. Protocols are matched by their exact Dogfish Protocol Number (no normalization).</p>
@@ -165,7 +209,6 @@ export function renderAuditPage(app: HTMLElement): void {
       <div class="results-section">
         <div class="results-section-header">
           <h2>Stimulus/Reader Fees On External Protocols <span class="count" id="external-fees-count"></span></h2>
-          <button class="secondary" id="export-external-fees">Export CSV</button>
         </div>
         <div class="table-wrap" id="external-fees-table"></div>
         <p class="table-note">Every event that billed a Stimulus/Response Equipment or Neuroreader (Research Report Reader) fee, at either the standard or the industry rate, on an external protocol — one row per event, with its Event ID. External protocols should never bill these fees. No data source outside Dogfish marks a protocol as external, so a protocol counts as external when the event itself billed the external MRI rate ("Human MRI (industry/external)" or the old label, "Human MRI (external)"), or when another event in this upload billed that exact protocol number at the external rate. Protocols are matched by their exact Dogfish Protocol Number (no normalization).</p>
@@ -174,7 +217,6 @@ export function renderAuditPage(app: HTMLElement): void {
       <div class="results-section">
         <div class="results-section-header">
           <h2>${TARGET_SCANNER} Scanner Events <span class="count" id="scanner-event-count"></span></h2>
-          <button class="secondary" id="export-scanner-events">Export CSV</button>
         </div>
         <div class="table-wrap" id="scanner-events-table"></div>
         <p class="table-note">Every Dogfish row on the ${TARGET_SCANNER} scanner, including no-shows and late cancellations — not filtered by any audit rule.</p>
@@ -183,7 +225,6 @@ export function renderAuditPage(app: HTMLElement): void {
       <div class="results-section">
         <div class="results-section-header">
           <h2>Human MRI (Industry/External) Events <span class="count" id="human-mri-external-count"></span></h2>
-          <button class="secondary" id="export-human-mri-external">Export CSV</button>
         </div>
         <div class="table-wrap" id="human-mri-external-table"></div>
         <p class="table-note">Every Dogfish row billed at the external MRI rate, on any scanner — not filtered by any audit rule. This includes both the current label, "Human MRI (industry/external)", and the old label, "Human MRI (external)". The Service column shows which one each row used.</p>
@@ -306,10 +347,11 @@ export function renderAuditPage(app: HTMLElement): void {
       if (slot.key === "redcap") renderRedcapCollisions([]);
 
       try {
-        const text = await readCsvFile(file);
-        const parsed = parseCsv(text);
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        const parsed = parseCsv(decodeCsvBytes(bytes));
         loadedFiles.set(slot.key, parsed);
         loadedFilenames.set(slot.key, file.name);
+        loadedBytes.set(slot.key, bytes);
         refreshFileDisplay(slot.key);
       } catch (err) {
         loadedFiles.delete(slot.key);
@@ -328,8 +370,78 @@ export function renderAuditPage(app: HTMLElement): void {
     errorBanner.style.display = "block";
   }
 
+  // The decisions outlive each run of the audit, so re-running it (after
+  // a row correction, say) keeps them.
+  const decisions = emptyDecisionStore();
+  const reviewerInput = document.getElementById(
+    "reviewer-initials"
+  ) as HTMLInputElement;
+  const saveButton = document.getElementById("save-audit") as HTMLButtonElement;
+  const saveStatus = document.getElementById("save-status")!;
+
+  // The audit as last run, for saving. Its ID and creation time stay the
+  // same across re-runs on this page.
+  let lastRun: AuditRun | null = null;
+  let auditId: string | null = null;
+  let createdAt = "";
+  // True when the audit has been run or a decision changed since the
+  // last save.
+  let unsaved = false;
+  let lastSaved: { filename: string; at: Date } | null = null;
+
+  const hasAnyDecision = () =>
+    Object.values(decisions).some((byKey: Map<string, Decision>) => byKey.size > 0);
+
+  setLeaveGuard(() =>
+    unsaved && hasAnyDecision()
+      ? "This audit has decisions that are not in a saved audit. Leave anyway and lose them?"
+      : null
+  );
+
+  const decisionContext: DecisionContext = {
+    reviewer: () => reviewerInput.value,
+    today: () => localDate(new Date()),
+    onChange: () => {
+      unsaved = true;
+      refreshDecisionCounts();
+      refreshSaveStatus();
+    },
+  };
+
+  const protocolIssueDecisions = decisionTableUi(
+    DECISION_KEYS.protocolIssues,
+    decisions.protocolIssues,
+    decisionContext
+  );
+  const mismatchDecisions = decisionTableUi(
+    DECISION_KEYS.mismatches,
+    decisions.mismatches,
+    decisionContext
+  );
+  const prodevConsistencyDecisions = decisionTableUi(
+    DECISION_KEYS.prodevConsistency,
+    decisions.prodevConsistency,
+    decisionContext
+  );
+  const humanMriExternalDecisions = decisionTableUi(
+    DECISION_KEYS.humanMriExternal,
+    decisions.humanMriExternal,
+    decisionContext
+  );
+
+  reviewerInput.addEventListener("input", () => {
+    for (const ui of [
+      protocolIssueDecisions,
+      mismatchDecisions,
+      prodevConsistencyDecisions,
+      humanMriExternalDecisions,
+    ]) {
+      ui.refreshAll();
+    }
+  });
+
   // Each column list below drives both the table on screen and its CSV
-  // export, so the two always match.
+  // file in the saved audit, so the two always match.
   const violationIssueColumns: Column<ViolationIssueRow>[] = [
     { header: "Event ID", get: (r) => r.eventId },
     { header: "Protocol Number", get: (r) => r.protocolNumber },
@@ -346,6 +458,7 @@ export function renderAuditPage(app: HTMLElement): void {
     { header: "Events", get: (r) => String(r.events) },
     { header: "First Scan", get: (r) => r.firstScan },
     { header: "Last Scan", get: (r) => r.lastScan },
+    ...protocolIssueDecisions.columns,
   ];
 
   const mismatchColumns: Column<DedupedMismatchRow>[] = [
@@ -355,6 +468,7 @@ export function renderAuditPage(app: HTMLElement): void {
     { header: "No Active REDCap Match", get: (r) => r.noActiveRedcapMatch },
     { header: "No REDCap Funding Type", get: (r) => r.noRedcapFundingType },
     { header: "Invalid Protocol Format", get: (r) => r.invalidProtocolFormat },
+    ...mismatchDecisions.columns,
   ];
 
   const scannerEventColumns: Column<ScannerEventRow>[] = [
@@ -380,6 +494,7 @@ export function renderAuditPage(app: HTMLElement): void {
     { header: "Mandatory Service", get: (r) => r.mandatoryService },
     { header: "Scheduling User", get: (r) => r.schedulingUser },
     { header: "Check-In User", get: (r) => r.checkInUser },
+    ...humanMriExternalDecisions.columns,
   ];
 
   const prodevConsistencyColumns: Column<ProdevConsistencyRow>[] = [
@@ -391,6 +506,7 @@ export function renderAuditPage(app: HTMLElement): void {
     { header: "Prodev Service Billed", get: (r) => r.prodevServiceBilled },
     { header: "Prodev Service Without Suffix", get: (r) => r.prodevServiceWithoutSuffix },
     { header: "Suffix Without Prodev Service", get: (r) => r.suffixWithoutProdevService },
+    ...prodevConsistencyDecisions.columns,
   ];
 
   const addOnColumns: Column<AddOnWithoutMriRow>[] = [
@@ -455,6 +571,13 @@ export function renderAuditPage(app: HTMLElement): void {
       const redcapRows = loadedFiles.get("redcap")!.rows;
 
       lastResult = runAudit(dogfishRows, camsRows, redcapRows);
+      lastRun = {
+        inputs: auditedInputs(),
+        dogfishScanRange: scanTimeRange(dogfishRows),
+      };
+      auditId ??= newAuditId();
+      createdAt ||= localTimestamp(new Date());
+      unsaved = true;
       const {
         violationIssues,
         protocolIssues,
@@ -474,20 +597,11 @@ export function renderAuditPage(app: HTMLElement): void {
         `${countOf(violationIssues.length, "error", "errors")} across ` +
           countOf(eventCount, "event", "events")
       );
-      const protocolCount = new Set(protocolIssues.map((r) => r.protocolNumber))
-        .size;
-      setCountText(
-        "protocol-issue-count",
-        `${countOf(protocolIssues.length, "error", "errors")} across ` +
-          countOf(protocolCount, "protocol", "protocols")
-      );
-      setCount("mismatch-count", dedupedMismatches.length);
+      refreshDecisionCounts();
       setCount("late-cancellation-count", excessLateCancellations.length);
       setCount("no-show-prodev-count", noShowsOnProdevProtocols.length);
       setCount("external-fees-count", feesOnExternalProtocols.length);
       setCount("scanner-event-count", scannerEvents.length);
-      setCount("human-mri-external-count", humanMriExternalEvents.length);
-      setCount("prodev-consistency-count", prodevConsistencyIssues.length);
       setCount("addon-count", addOnsWithoutMri.length);
 
       renderTable(
@@ -496,12 +610,14 @@ export function renderAuditPage(app: HTMLElement): void {
         violationIssues,
         "No violations found."
       );
+      protocolIssueDecisions.reset();
       renderTable(
         "protocol-issues-table",
         protocolIssueColumns,
         protocolIssues,
         "No violations found."
       );
+      mismatchDecisions.reset();
       renderTable(
         "mismatches-table",
         mismatchColumns,
@@ -532,12 +648,14 @@ export function renderAuditPage(app: HTMLElement): void {
         scannerEvents,
         `No events found on the ${TARGET_SCANNER} scanner.`
       );
+      humanMriExternalDecisions.reset();
       renderTable(
         "human-mri-external-table",
         humanMriExternalColumns,
         humanMriExternalEvents,
         "No Human MRI (Industry/External) events found."
       );
+      prodevConsistencyDecisions.reset();
       renderTable(
         "prodev-consistency-table",
         prodevConsistencyColumns,
@@ -551,6 +669,7 @@ export function renderAuditPage(app: HTMLElement): void {
         "No add-on fees found without an MRI service."
       );
 
+      refreshSaveStatus();
       resultsEl.classList.add("visible");
     } catch (err) {
       showError(err instanceof Error ? err.message : String(err));
@@ -558,89 +677,166 @@ export function renderAuditPage(app: HTMLElement): void {
     }
   });
 
-  document
-    .getElementById("export-violation-issues")!
-    .addEventListener("click", () => {
-      downloadCsv(
-        "audit_violations.csv",
-        toCsv(violationIssueColumns, lastResult.violationIssues)
-      );
-    });
+  /** The inputs the audit is about to run on, for the saved audit. */
+  function auditedInputs(): Record<AuditInputKey, AuditInputFile> {
+    const inputs = {} as Record<AuditInputKey, AuditInputFile>;
+    for (const slot of SLOTS) {
+      inputs[slot.key] = {
+        filename: loadedFilenames.get(slot.key)!,
+        bytes: loadedBytes.get(slot.key)!,
+        corrections: loadedFiles.get(slot.key)!.corrections,
+      };
+    }
+    return inputs;
+  }
 
-  document
-    .getElementById("export-protocol-issues")!
-    .addEventListener("click", () => {
-      downloadCsv(
-        "audit_violations_by_protocol.csv",
-        toCsv(protocolIssueColumns, lastResult.protocolIssues)
-      );
-    });
-
-  document.getElementById("export-mismatches")!.addEventListener("click", () => {
-    downloadCsv(
-      "audit_mismatches.csv",
-      toCsv(mismatchColumns, lastResult.dedupedMismatches)
+  /** Updates the counts of the tables that take decisions, which include
+   * how many rows still need one. */
+  function refreshDecisionCounts(): void {
+    const {
+      protocolIssues,
+      dedupedMismatches,
+      prodevConsistencyIssues,
+      humanMriExternalEvents,
+    } = lastResult;
+    const protocolCount = new Set(protocolIssues.map((r) => r.protocolNumber))
+      .size;
+    setCountText(
+      "protocol-issue-count",
+      withDecisionCount(
+        `${countOf(protocolIssues.length, "error", "errors")} across ` +
+          countOf(protocolCount, "protocol", "protocols"),
+        protocolIssues.length,
+        countNeedingDecision(
+          protocolIssues,
+          DECISION_KEYS.protocolIssues,
+          decisions.protocolIssues
+        )
+      )
     );
-  });
-
-  document
-    .getElementById("export-late-cancellations")!
-    .addEventListener("click", () => {
-      downloadCsv(
-        "excess_late_cancellations.csv",
-        toCsv(lateCancellationColumns, lastResult.excessLateCancellations)
-      );
-    });
-
-  document
-    .getElementById("export-no-show-prodev")!
-    .addEventListener("click", () => {
-      downloadCsv(
-        "no_shows_on_prodev_protocols.csv",
-        toCsv(noShowProdevColumns, lastResult.noShowsOnProdevProtocols)
-      );
-    });
-
-  document
-    .getElementById("export-external-fees")!
-    .addEventListener("click", () => {
-      downloadCsv(
-        "fees_on_external_protocols.csv",
-        toCsv(externalFeeColumns, lastResult.feesOnExternalProtocols)
-      );
-    });
-
-  document
-    .getElementById("export-scanner-events")!
-    .addEventListener("click", () => {
-      downloadCsv(
-        `${TARGET_SCANNER.toLowerCase()}_scanner_events.csv`,
-        toCsv(scannerEventColumns, lastResult.scannerEvents)
-      );
-    });
-
-  document
-    .getElementById("export-human-mri-external")!
-    .addEventListener("click", () => {
-      downloadCsv(
-        "human_mri_external_events.csv",
-        toCsv(humanMriExternalColumns, lastResult.humanMriExternalEvents)
-      );
-    });
-
-  document
-    .getElementById("export-prodev-consistency")!
-    .addEventListener("click", () => {
-      downloadCsv(
-        "prodev_naming_consistency.csv",
-        toCsv(prodevConsistencyColumns, lastResult.prodevConsistencyIssues)
-      );
-    });
-
-  document.getElementById("export-addons")!.addEventListener("click", () => {
-    downloadCsv(
-      "addons_without_mri.csv",
-      toCsv(addOnColumns, lastResult.addOnsWithoutMri)
+    setCountText(
+      "mismatch-count",
+      withDecisionCount(
+        String(dedupedMismatches.length),
+        dedupedMismatches.length,
+        countNeedingDecision(
+          dedupedMismatches,
+          DECISION_KEYS.mismatches,
+          decisions.mismatches
+        )
+      )
     );
+    setCountText(
+      "prodev-consistency-count",
+      withDecisionCount(
+        String(prodevConsistencyIssues.length),
+        prodevConsistencyIssues.length,
+        countNeedingDecision(
+          prodevConsistencyIssues,
+          DECISION_KEYS.prodevConsistency,
+          decisions.prodevConsistency
+        )
+      )
+    );
+    setCountText(
+      "human-mri-external-count",
+      withDecisionCount(
+        String(humanMriExternalEvents.length),
+        humanMriExternalEvents.length,
+        countNeedingDecision(
+          humanMriExternalEvents,
+          DECISION_KEYS.humanMriExternal,
+          decisions.humanMriExternal
+        )
+      )
+    );
+  }
+
+  function refreshSaveStatus(): void {
+    if (!lastRun) {
+      saveStatus.textContent = "";
+    } else if (!unsaved && lastSaved) {
+      const time = lastSaved.at.toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+      saveStatus.textContent = `Saved as ${lastSaved.filename} at ${time}.`;
+    } else if (lastSaved) {
+      saveStatus.textContent = "Changed since the last save.";
+    } else {
+      saveStatus.textContent = "Not saved yet.";
+    }
+  }
+
+  /** Every results table as CSV, in the order the page shows them. */
+  function reportFiles(): ReportFile[] {
+    return [
+      {
+        filename: "audit_violations_by_protocol.csv",
+        csv: toCsv(protocolIssueColumns, lastResult.protocolIssues),
+      },
+      {
+        filename: "audit_violations.csv",
+        csv: toCsv(violationIssueColumns, lastResult.violationIssues),
+      },
+      {
+        filename: "audit_mismatches.csv",
+        csv: toCsv(mismatchColumns, lastResult.dedupedMismatches),
+      },
+      {
+        filename: "prodev_naming_consistency.csv",
+        csv: toCsv(prodevConsistencyColumns, lastResult.prodevConsistencyIssues),
+      },
+      {
+        filename: "addons_without_mri.csv",
+        csv: toCsv(addOnColumns, lastResult.addOnsWithoutMri),
+      },
+      {
+        filename: "excess_late_cancellations.csv",
+        csv: toCsv(lateCancellationColumns, lastResult.excessLateCancellations),
+      },
+      {
+        filename: "no_shows_on_prodev_protocols.csv",
+        csv: toCsv(noShowProdevColumns, lastResult.noShowsOnProdevProtocols),
+      },
+      {
+        filename: "fees_on_external_protocols.csv",
+        csv: toCsv(externalFeeColumns, lastResult.feesOnExternalProtocols),
+      },
+      {
+        filename: `${TARGET_SCANNER.toLowerCase()}_scanner_events.csv`,
+        csv: toCsv(scannerEventColumns, lastResult.scannerEvents),
+      },
+      {
+        filename: "human_mri_external_events.csv",
+        csv: toCsv(humanMriExternalColumns, lastResult.humanMriExternalEvents),
+      },
+    ];
+  }
+
+  saveButton.addEventListener("click", () => {
+    if (!lastRun || !auditId) return;
+    const now = new Date();
+    const { zip } = buildSavedAudit({
+      auditId,
+      createdAt,
+      savedAt: localTimestamp(now),
+      savedBy: reviewerInput.value.trim(),
+      appVersion: __APP_VERSION__,
+      dogfishScanRange: lastRun.dogfishScanRange,
+      inputs: lastRun.inputs,
+      reports: reportFiles(),
+    });
+    const filename = savedAuditFilename(
+      lastRun.dogfishScanRange,
+      localDate(now)
+    );
+    // fflate types its output as a view on any buffer, but it is always a
+    // plain ArrayBuffer, which is what Blob accepts.
+    const bytes = zip as Uint8Array<ArrayBuffer>;
+    downloadBlob(filename, new Blob([bytes], { type: "application/zip" }));
+    unsaved = false;
+    lastSaved = { filename, at: now };
+    refreshSaveStatus();
   });
 }
