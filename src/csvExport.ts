@@ -13,7 +13,8 @@ export interface Column<T> {
   render?: (row: T) => Node;
 }
 
-function csvField(value: string | boolean): string {
+/** A cell value as the CSV export writes it. */
+export function csvField(value: string | boolean): string {
   return typeof value === "boolean" ? (value ? "TRUE" : "FALSE") : value;
 }
 

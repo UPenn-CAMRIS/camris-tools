@@ -85,6 +85,37 @@ h1 {
   font-size: 0.92rem;
 }
 
+.mode-switch {
+  display: inline-flex;
+  margin: 0.75rem 0 0.25rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+button.mode-tab {
+  border-radius: 0;
+  padding: 0.45rem 1rem;
+  font-size: 0.95rem;
+  background: transparent;
+  color: inherit;
+}
+
+button.mode-tab + button.mode-tab {
+  border-left: 1px solid var(--border);
+}
+
+button.mode-tab[aria-pressed="true"] {
+  background: #2a5cdb;
+  color: white;
+}
+
+.upload-readonly {
+  color: #666;
+  font-size: 0.9rem;
+  font-style: italic;
+}
+
 .upload-grid {
   display: grid;
   gap: 1rem;

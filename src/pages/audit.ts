@@ -1,4 +1,9 @@
-import { decodeCsvBytes, parseCsv, type ParsedCsv } from "../parseCsv";
+import {
+  applyRowCorrections,
+  decodeCsvBytes,
+  parseCsv,
+  type ParsedCsv,
+} from "../parseCsv";
 import {
   runAudit,
   buildRedcapLookup,
@@ -45,23 +50,30 @@ import { renderPageNav } from "../nav";
 import {
   DECISION_KEYS,
   countNeedingDecision,
+  decisionsFromCsv,
   emptyDecisionStore,
   type Decision,
+  type DecisionStore,
+  type DecisionTableId,
 } from "../decisions";
 import { decisionTableUi, type DecisionContext } from "../decisionUi";
 import {
+  AUDIT_INPUT_KEYS,
+  DECISION_REPORT_FILES,
   buildSavedAudit,
   localDate,
   localTimestamp,
   newAuditId,
+  openSavedAudit,
   savedAuditFilename,
   scanTimeRange,
   type AuditInputFile,
   type AuditInputKey,
+  type AuditManifest,
   type ReportFile,
   type ScanRange,
 } from "../savedAudit";
-import { setLeaveGuard } from "../leaveGuard";
+import { confirmLeave, setLeaveGuard } from "../leaveGuard";
 
 interface FileSlot {
   key: AuditInputKey;
@@ -90,6 +102,13 @@ function withDecisionCount(base: string, rows: number, needing: number): string 
   return `${base} · ${status}`;
 }
 
+/** "at 14:12" today, else "on 2026-09-30 at 14:12". */
+function describeTime(at: Date): string {
+  const time = at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const day = localDate(at);
+  return day === localDate(new Date()) ? `at ${time}` : `on ${day} at ${time}`;
+}
+
 /** The audit as it was last run: the inputs it ran on, for saving. */
 interface AuditRun {
   inputs: Record<AuditInputKey, AuditInputFile>;
@@ -102,7 +121,63 @@ const SLOTS: FileSlot[] = [
   { key: "redcap", label: "REDCap Export", accept: ".csv", formats: "CSV file" },
 ];
 
-export function renderAuditPage(app: HTMLElement): void {
+/** "new": upload three exports and start an audit. "open": upload a
+ * saved audit and continue it. */
+export type AuditMode = "new" | "open";
+
+/** A saved audit, read and checked before any of it is put on the page,
+ * so a file that fails part-way leaves the page as it was. */
+interface PreparedSavedAudit {
+  manifest: AuditManifest;
+  inputs: Record<
+    AuditInputKey,
+    { filename: string; bytes: Uint8Array; parsed: ParsedCsv }
+  >;
+  decisions: DecisionStore;
+}
+
+async function prepareSavedAudit(file: File): Promise<PreparedSavedAudit> {
+  const opened = openSavedAudit(new Uint8Array(await file.arrayBuffer()));
+
+  const inputs = {} as PreparedSavedAudit["inputs"];
+  for (const key of AUDIT_INPUT_KEYS) {
+    const { filename, bytes, corrections } = opened.inputs[key];
+    let parsed: ParsedCsv;
+    try {
+      parsed = applyRowCorrections(parseCsv(decodeCsvBytes(bytes)), corrections);
+    } catch (err) {
+      const why = err instanceof Error ? err.message : String(err);
+      throw new Error(`The saved audit's ${filename} could not be restored. ${why}`);
+    }
+    inputs[key] = { filename, bytes, parsed };
+  }
+
+  const decisions = emptyDecisionStore();
+  for (const table of Object.keys(DECISION_REPORT_FILES) as DecisionTableId[]) {
+    const reportFile = DECISION_REPORT_FILES[table];
+    const csv = opened.reports.get(reportFile);
+    if (csv === undefined) {
+      throw new Error(`This saved audit is missing reports/${reportFile}.`);
+    }
+    decisions[table] = decisionsFromCsv(table, parseCsv(csv).rows);
+  }
+
+  return { manifest: opened.manifest, inputs, decisions };
+}
+
+/** A saved audit already read and checked, and the name of its file. */
+interface OpenedSavedAudit {
+  filename: string;
+  prepared: PreparedSavedAudit;
+}
+
+/** Renders the Audit Tool page in `mode`. `opened`, in "open" mode, is a
+ * saved audit to show as soon as the page is ready. */
+export function renderAuditPage(
+  app: HTMLElement,
+  mode: AuditMode = "new",
+  opened?: OpenedSavedAudit
+): void {
   const loadedFiles = new Map<FileSlot["key"], ParsedCsv>();
   const loadedFilenames = new Map<FileSlot["key"], string>();
   // Each file exactly as uploaded, for the saved audit.
@@ -111,7 +186,30 @@ export function renderAuditPage(app: HTMLElement): void {
   app.innerHTML = `
     ${renderPageNav("audit")}
     <h1>CAMRIS Billing Audit</h1>
-    <p class="subtitle">Upload the three exports below to check billing events against the audit rules.</p>
+
+    <div class="mode-switch">
+      <button type="button" class="mode-tab" data-mode="new" aria-pressed="${mode === "new"}">Start a new audit</button>
+      <button type="button" class="mode-tab" data-mode="open" aria-pressed="${mode === "open"}">Open a saved audit</button>
+    </div>
+
+    ${
+      mode === "new"
+        ? `<p class="subtitle">Upload the three exports below to check billing events against the audit rules.</p>`
+        : `<p class="subtitle">Upload a saved audit (.zip) to continue it. Its three input files, row corrections, and decisions are restored, and the audit runs again.</p>
+    <div class="upload-grid">
+      <div class="upload-slot">
+        <div class="upload-row">
+          <div class="upload-label">
+            <label for="file-saved">Saved Audit</label>
+            <span class="upload-formats">.zip file</span>
+          </div>
+          <input type="file" id="file-saved" accept=".zip" />
+          <span class="file-status" id="status-saved"></span>
+        </div>
+        <div id="saved-audit-note"></div>
+      </div>
+    </div>`
+    }
 
     <div class="upload-grid">
       ${SLOTS.map(
@@ -122,7 +220,11 @@ export function renderAuditPage(app: HTMLElement): void {
               <label for="file-${slot.key}">${slot.label}</label>
               <span class="upload-formats">${slot.formats}</span>
             </div>
-            <input type="file" id="file-${slot.key}" accept="${slot.accept}" />
+            ${
+              mode === "new"
+                ? `<input type="file" id="file-${slot.key}" accept="${slot.accept}" />`
+                : `<span class="upload-readonly">From the saved audit</span>`
+            }
             <span class="file-status" id="status-${slot.key}"></span>
           </div>
           <div id="sanity-${slot.key}"></div>
@@ -324,7 +426,23 @@ export function renderAuditPage(app: HTMLElement): void {
     }
   }
 
-  for (const slot of SLOTS) {
+  /** Puts one input file on the page: `bytes` as uploaded, and `parsed`,
+   * its parse with any row corrections already applied. */
+  function loadInput(
+    key: FileSlot["key"],
+    filename: string,
+    bytes: Uint8Array,
+    parsed: ParsedCsv
+  ): void {
+    loadedFiles.set(key, parsed);
+    loadedFilenames.set(key, filename);
+    loadedBytes.set(key, bytes);
+    refreshFileDisplay(key);
+  }
+
+  // In "open" mode the inputs come only from the saved audit, so the
+  // three slots have no file pickers.
+  for (const slot of mode === "new" ? SLOTS : []) {
     const input = document.getElementById(
       `file-${slot.key}`
     ) as HTMLInputElement;
@@ -348,11 +466,7 @@ export function renderAuditPage(app: HTMLElement): void {
 
       try {
         const bytes = new Uint8Array(await file.arrayBuffer());
-        const parsed = parseCsv(decodeCsvBytes(bytes));
-        loadedFiles.set(slot.key, parsed);
-        loadedFilenames.set(slot.key, file.name);
-        loadedBytes.set(slot.key, bytes);
-        refreshFileDisplay(slot.key);
+        loadInput(slot.key, file.name, bytes, parseCsv(decodeCsvBytes(bytes)));
       } catch (err) {
         loadedFiles.delete(slot.key);
         renderSanityChecks(slot.key, undefined, FILE_SCHEMAS[slot.key]);
@@ -756,11 +870,7 @@ export function renderAuditPage(app: HTMLElement): void {
     if (!lastRun) {
       saveStatus.textContent = "";
     } else if (!unsaved && lastSaved) {
-      const time = lastSaved.at.toLocaleTimeString([], {
-        hour: "2-digit",
-        minute: "2-digit",
-      });
-      saveStatus.textContent = `Saved as ${lastSaved.filename} at ${time}.`;
+      saveStatus.textContent = `Saved as ${lastSaved.filename} ${describeTime(lastSaved.at)}.`;
     } else if (lastSaved) {
       saveStatus.textContent = "Changed since the last save.";
     } else {
@@ -772,7 +882,7 @@ export function renderAuditPage(app: HTMLElement): void {
   function reportFiles(): ReportFile[] {
     return [
       {
-        filename: "audit_violations_by_protocol.csv",
+        filename: DECISION_REPORT_FILES.protocolIssues,
         csv: toCsv(protocolIssueColumns, lastResult.protocolIssues),
       },
       {
@@ -780,11 +890,11 @@ export function renderAuditPage(app: HTMLElement): void {
         csv: toCsv(violationIssueColumns, lastResult.violationIssues),
       },
       {
-        filename: "audit_mismatches.csv",
+        filename: DECISION_REPORT_FILES.mismatches,
         csv: toCsv(mismatchColumns, lastResult.dedupedMismatches),
       },
       {
-        filename: "prodev_naming_consistency.csv",
+        filename: DECISION_REPORT_FILES.prodevConsistency,
         csv: toCsv(prodevConsistencyColumns, lastResult.prodevConsistencyIssues),
       },
       {
@@ -808,7 +918,7 @@ export function renderAuditPage(app: HTMLElement): void {
         csv: toCsv(scannerEventColumns, lastResult.scannerEvents),
       },
       {
-        filename: "human_mri_external_events.csv",
+        filename: DECISION_REPORT_FILES.humanMriExternal,
         csv: toCsv(humanMriExternalColumns, lastResult.humanMriExternalEvents),
       },
     ];
@@ -839,4 +949,93 @@ export function renderAuditPage(app: HTMLElement): void {
     lastSaved = { filename, at: now };
     refreshSaveStatus();
   });
+
+  for (const tab of app.querySelectorAll<HTMLButtonElement>(".mode-tab")) {
+    tab.addEventListener("click", () => {
+      const target = tab.dataset.mode as AuditMode;
+      if (target !== mode && confirmLeave()) renderAuditPage(app, target);
+    });
+  }
+
+  /** Restores a saved audit on this page and runs it again. */
+  function showSaved({ filename: zipName, prepared }: OpenedSavedAudit): void {
+    const { manifest } = prepared;
+
+    for (const key of AUDIT_INPUT_KEYS) {
+      const { filename, bytes, parsed } = prepared.inputs[key];
+      loadInput(key, filename, bytes, parsed);
+    }
+    for (const table of Object.keys(decisions) as DecisionTableId[]) {
+      decisions[table].clear();
+      for (const [key, decision] of prepared.decisions[table]) {
+        decisions[table].set(key, decision);
+      }
+    }
+    auditId = manifest.auditId;
+    createdAt = manifest.createdAt;
+
+    const savedAt = new Date(manifest.savedAt);
+    const by = manifest.savedBy ? ` by ${manifest.savedBy}` : "";
+    setStatus(
+      "saved",
+      `${zipName} — saved ${describeTime(savedAt)}${by}`,
+      "loaded"
+    );
+    renderVersionNote(manifest.appVersion);
+
+    updateRunButtonState();
+    if (!runButton.disabled) runButton.click();
+    // Opening changes nothing: the page matches the file just opened.
+    unsaved = false;
+    lastSaved = { filename: zipName, at: savedAt };
+    refreshSaveStatus();
+  }
+
+  /** Says so when the saved audit came from a different build of the
+   * tool, whose rules may give different results. */
+  function renderVersionNote(savedVersion: string): void {
+    const container = document.getElementById("saved-audit-note")!;
+    container.innerHTML = "";
+    if (savedVersion === __APP_VERSION__) return;
+    const note = document.createElement("p");
+    note.className = "detail-box";
+    note.textContent =
+      `This audit was saved by version ${savedVersion} of the tool; this is ` +
+      `version ${__APP_VERSION__}. If the audit rules changed in between, the ` +
+      "results can differ from when it was saved. Decisions are matched to " +
+      "the new results by their protocol (and issue, where the table has " +
+      "one), but a decision whose row is no longer flagged is not kept when " +
+      "you save.";
+    container.appendChild(note);
+  }
+
+  if (mode === "open") {
+    const input = document.getElementById("file-saved") as HTMLInputElement;
+    input.addEventListener("change", async () => {
+      const file = input.files?.[0];
+      input.value = "";
+      if (!file) return;
+
+      // Read and check the whole file before changing the page, so a
+      // wrong or damaged file leaves an open audit as it was.
+      const hasAudit = loadedFiles.size > 0;
+      errorBanner.style.display = "none";
+      if (!hasAudit) setStatus("saved", `Reading ${file.name}...`);
+      let prepared: PreparedSavedAudit;
+      try {
+        prepared = await prepareSavedAudit(file);
+      } catch (err) {
+        if (!hasAudit) setStatus("saved", `Failed to open ${file.name}`);
+        const why = err instanceof Error ? err.message : String(err);
+        showError(`${file.name}: ${why}`);
+        return;
+      }
+
+      // A second saved audit replaces everything on the page.
+      const next = { filename: file.name, prepared };
+      if (!hasAudit) showSaved(next);
+      else if (confirmLeave()) renderAuditPage(app, "open", next);
+    });
+    if (opened) showSaved(opened);
+  }
 }

@@ -316,6 +316,32 @@ export function applyRowCorrection(
   };
 }
 
+/** Applies recorded row corrections again, in order, to a file as
+ * loaded — for example the corrections saved with an audit. Throws when a
+ * correction does not fit the file: its row does not exist, or it leaves
+ * the text unchanged, which a recorded correction never does. */
+export function applyRowCorrections(
+  parsed: ParsedCsv,
+  corrections: RowCorrection[]
+): ParsedCsv {
+  return corrections.reduce((file, correction, i) => {
+    const { rowIndex, text } = correction;
+    const corrected =
+      Number.isInteger(rowIndex) &&
+      rowIndex >= 0 &&
+      rowIndex < file.rows.length &&
+      typeof text === "string"
+        ? applyRowCorrection(file, rowIndex, text)
+        : file;
+    if (corrected === file) {
+      throw new Error(
+        `Row correction ${i + 1} does not fit this file, so it cannot be applied again.`
+      );
+    }
+    return corrected;
+  }, parsed);
+}
+
 /** The full text of the file with every applied row correction in it,
  * for saving a corrected copy. Every row the user did not edit is
  * byte-for-byte the same as in the uploaded file, and the byte-order
