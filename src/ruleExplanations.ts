@@ -110,7 +110,7 @@ export const CONTRAST_RULE_EXPLANATIONS: RuleExplanation[] = [
   {
     label: "code",
     description:
-      'The code to bill: CAMRIS-051 for an industry-sponsored protocol, CAMRIS-003 otherwise. It starts as the Suggested Code, and you can change it. A CHOP study that is not industry sponsored is CAMRIS-003: CHOP studies pay the standard rate for contrast, as for the Stimulus and Reader fees.',
+      'The code to bill: CAMRIS-051 for an industry-sponsored protocol, CAMRIS-003 otherwise. It starts as the Suggested Code, and you can change it; generating the output again discards the changes. A CHOP study that is not industry sponsored is CAMRIS-003: CHOP studies pay the standard rate for contrast, as for the Stimulus and Reader fees.',
   },
   {
     label: "Suggested Code",
@@ -118,19 +118,9 @@ export const CONTRAST_RULE_EXPLANATIONS: RuleExplanation[] = [
       "The code most of the sources that answer point to (see Says Industry). When two sources answer and disagree, the MRI service wins, then CAMS. When no source answers, there is no suggested code, and you must choose one.",
   },
   {
-    label: "Code Set By Hand",
-    description:
-      "The code was changed in the table from the Suggested Code. Generating the output again discards codes set by hand.",
-  },
-  {
     label: "Says Industry, Says Not Industry",
     description:
-      'The sources that say the protocol is, or is not, industry sponsored. Each is read the way the Audit Tool reads it. MRI service: the MRI rate Dogfish billed for the same scan. Human MRI (Industry/CHOP) or Animal MRI (Industry/CHOP) says industry, and any other MRI rate says not industry. The external rate, Human MRI (industry/external), gives no answer, because it serves external users whether or not they are industry. The Industry/CHOP rate on a CHOP study also gives no answer, because a non-industry CHOP study is billed at it too. CAMS: "Industry Sponsored" is "Yes" for industry; any other value is not industry. REDCap: funding type 1 or 4 is industry; any other code is not industry. A source with no answer is in neither column.',
-  },
-  {
-    label: "Sources Disagree",
-    description:
-      "At least one source says industry and at least one says not industry. The Suggested Code follows the majority, but check the row: the fix may belong in the billing or in a source's data.",
+      'The sources that say the protocol is, or is not, industry sponsored. Each is read the way the Audit Tool reads it. MRI service: the MRI rate Dogfish billed for the same scan. Human MRI (Industry/CHOP) or Animal MRI (Industry/CHOP) says industry, and any other MRI rate says not industry. The external rate, Human MRI (industry/external), gives no answer, because it serves external users whether or not they are industry. The Industry/CHOP rate on a CHOP study also gives no answer, because a non-industry CHOP study is billed at it too. CAMS: "Industry Sponsored" is "Yes" for industry; any other value is not industry. REDCap: funding type 1 or 4 is industry; any other code is not industry. A source with no answer is in neither column. When both columns name a source, the sources disagree: the Suggested Code follows the majority, but check the row, because the fix may belong in the billing or in a source\'s data.',
   },
   {
     label: "REDCap CHOP",

@@ -350,22 +350,25 @@ answer at all (for example, a blank IRB number), there is no suggested code.
 A CHOP study that is not industry sponsored is `CAMRIS-003`: CHOP studies
 pay the standard rate for contrast, as for the Stimulus and Reader fees.
 
-The results are one table, with the billing columns first. The `code` cell
-is a drop-down, set to the suggested code, that a person can change. The
-columns after the billing columns show how the code was chosen: Suggested
-Code, Code Set By Hand, Says Industry and Says Not Industry (the sources on
-each side), Sources Disagree, REDCap CHOP, and the matched Dogfish Event ID
-and MRI Service. Then come the audit's mismatch flags, with the same meaning
-as on the audit's Mismatches table (No CAMS Match, No Active REDCap Match,
-No REDCap Funding Type, Invalid Protocol Format), plus No Dogfish MRI Match.
-A row with a mismatch is still in the table, with the code its other sources
-suggest.
+The results are one table, with the billing columns first, except the
+constants `lab`, `sublab`, `quantity`, and `bill`, which are the same on
+every row and only go in the billing CSV. The `code` cell is a drop-down,
+set to the suggested code, that a person can change. The columns after the
+billing columns show how the code was chosen: Suggested Code, Says Industry
+and Says Not Industry (the sources on each side; when both name a
+source, the sources disagree), REDCap CHOP, and the matched Dogfish Event
+ID and MRI Service. Then come the audit's mismatch flags, with the same
+meaning as on the audit's Mismatches table (No CAMS Match, No Active REDCap
+Match, No REDCap Funding Type, Invalid Protocol Format), plus No Dogfish MRI
+Match. A row with a mismatch is still in the table, with the code its other
+sources suggest. The count above the table says how many rows need a code,
+have sources that disagree, and have a code set by hand.
 
-**Export billing CSV** writes only the billing columns (`date` to `bill`),
-with the code chosen in the table, in the order on screen. It stays disabled
-until every row has a code. **Export full table** writes every column. The
-page asks before it discards codes set by hand: on Generate Output, or when
-you leave the page.
+**Export billing CSV** writes only the billing columns (`date` to `bill`,
+constants included), with the code chosen in the table, in the order on
+screen. It stays disabled until every row has a code. **Export full table**
+writes the table as shown. The page asks before it discards codes set by
+hand: on Generate Output, or when you leave the page.
 
 A REDCap name collision blocks Generate Output, as it blocks the audit (see
 [REDCap collision guard](#redcap-collision-guard)).
