@@ -1,0 +1,148 @@
+import type { Column } from "./csvExport";
+import {
+  DECISION_VALUES,
+  decisionColumns,
+  needsDecision,
+  recordDecision,
+  type Decision,
+  type DecisionValue,
+} from "./decisions";
+
+export interface DecisionContext {
+  /** The reviewer's initials. Decisions cannot be made while blank. */
+  reviewer(): string;
+  /** Today's local date, "YYYY-MM-DD". */
+  today(): string;
+  /** Called after any decision changes. */
+  onChange(): void;
+}
+
+export interface DecisionTableUi<T> {
+  /** The decision columns, with editable cells on screen. */
+  columns: Column<T>[];
+  /** Forgets the cells of the last render. Call before each render of
+   * the table. */
+  reset(): void;
+  /** Redraws every decision cell, for example after the reviewer's
+   * initials change. */
+  refreshAll(): void;
+}
+
+const NO_REVIEWER_HINT = "Enter your initials above to record decisions.";
+
+/** The editable decision columns for one table. Rows that share a
+ * decision key share one decision, so a change on one row redraws the
+ * decision cells of every row with that key. */
+export function decisionTableUi<T>(
+  keyFn: (row: T) => string,
+  decisions: Map<string, Decision>,
+  context: DecisionContext
+): DecisionTableUi<T> {
+  let refreshers = new Map<string, (() => void)[]>();
+
+  function register(key: string, refresh: () => void): void {
+    refresh();
+    const list = refreshers.get(key);
+    if (list) list.push(refresh);
+    else refreshers.set(key, [refresh]);
+  }
+
+  function changed(key: string): void {
+    for (const refresh of refreshers.get(key) ?? []) refresh();
+    context.onChange();
+  }
+
+  const noReviewer = () => context.reviewer().trim() === "";
+
+  const [decisionCol, reasonCol, ...otherCols] = decisionColumns(
+    keyFn,
+    decisions
+  );
+
+  decisionCol.render = (row) => {
+    const key = keyFn(row);
+    const select = document.createElement("select");
+    select.className = "decision-select";
+    for (const value of ["", ...DECISION_VALUES]) {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = value || "—";
+      select.appendChild(option);
+    }
+    select.addEventListener("change", () => {
+      recordDecision(
+        decisions,
+        key,
+        select.value as DecisionValue | "",
+        decisions.get(key)?.reason ?? "",
+        context.reviewer(),
+        context.today()
+      );
+      changed(key);
+    });
+    register(key, () => {
+      select.value = decisions.get(key)?.value ?? "";
+      select.disabled = noReviewer();
+      select.title = select.disabled ? NO_REVIEWER_HINT : "";
+    });
+    return select;
+  };
+
+  reasonCol.render = (row) => {
+    const key = keyFn(row);
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "decision-reason";
+    input.addEventListener("change", () => {
+      const decision = decisions.get(key);
+      if (!decision) return;
+      recordDecision(
+        decisions,
+        key,
+        decision.value,
+        input.value,
+        context.reviewer(),
+        context.today()
+      );
+      changed(key);
+    });
+    register(key, () => {
+      const decision = decisions.get(key);
+      input.value = decision?.reason ?? "";
+      input.disabled = !decision || noReviewer();
+      input.placeholder =
+        decision?.value === "Don't fix"
+          ? "Reason (required)"
+          : decision
+            ? "Reason (optional)"
+            : "";
+      input.classList.toggle(
+        "needs-reason",
+        decision !== undefined && needsDecision(decision)
+      );
+    });
+    return input;
+  };
+
+  for (const col of otherCols) {
+    col.render = (row) => {
+      const span = document.createElement("span");
+      register(keyFn(row), () => {
+        span.textContent = col.get(row) as string;
+      });
+      return span;
+    };
+  }
+
+  return {
+    columns: [decisionCol, reasonCol, ...otherCols],
+    reset: () => {
+      refreshers = new Map();
+    },
+    refreshAll: () => {
+      for (const list of refreshers.values()) {
+        for (const refresh of list) refresh();
+      }
+    },
+  };
+}

@@ -102,7 +102,8 @@ each results table in the app itself.
    `Protocol format` (the animal `AR` protocol-number format), or `Scanner`
    (Stellar Chance). Rows are
    sorted by Event ID or protocol number, then in the fixed order of the
-   issues. The CSV export has exactly the columns shown on screen.
+   issues. Each table's CSV file in a saved audit has exactly the columns
+   shown on screen.
 3. **Mismatches** — protocols that couldn't be fully checked because they
    weren't found in CAMS, weren't found in an active ("Complete") REDCap
    review, have an active REDCap review with a blank funding type, or have
@@ -159,7 +160,59 @@ each results table in the app itself.
     Dogfish marks a protocol as external, so this table is how a person
     checks each external event.
 
-Every table can be exported to CSV from the button above it.
+### Decisions
+
+Four tables take a decision on each flagged row: Violations by Protocol,
+Mismatches, Prodev Naming Consistency, and Human MRI (Industry/External)
+Events. A decision is **Fix** or **Don't fix**, with a Reason (required for
+Don't fix), and the tool fills in Decided By, Decided On, and Confirmed On.
+Enter your initials next to Run Audit first; the decision controls stay
+disabled until you do.
+
+A decision belongs to a key, not to one row (`DECISION_KEYS` in
+`decisions.ts`):
+
+| Table | Decision key |
+|---|---|
+| Violations by Protocol | protocol number + issue |
+| Mismatches | protocol number + the set of checks that failed |
+| Prodev Naming Consistency | protocol number + direction of the mismatch |
+| Human MRI (Industry/External) Events | protocol number |
+
+The last two tables have one row per event, so a decision made on one row
+fills every row with the same key. The disagreeing source and the event
+counts are not part of any key. Each table's count also says how many rows
+still need a decision: rows with no decision, and Don't fix rows with no
+reason. Running the audit again on the same page keeps the decisions.
+
+### Saving an audit
+
+**Save audit (.zip)**, above the results, downloads the whole audit as one
+file, named for the Dogfish scan period and the save date, for example
+`camris_audit_2026-09-01_to_2026-09-29_saved_2026-09-30.zip`
+(`savedAudit.ts`):
+
+```
+manifest.json
+inputs/dogfish/<uploaded file name>    the three input files, exactly as
+inputs/cams/<uploaded file name>       uploaded
+inputs/redcap/<uploaded file name>
+reports/<one CSV per results table>    with the decision columns, where a
+                                       table takes decisions
+```
+
+The manifest records the audit ID (the same each time one audit is saved
+again), when it was created and saved, the saver's initials, the app build
+(git commit), the Dogfish scan range, and each input's row corrections in
+the order they were applied. Applying those corrections again, in order, to
+the saved input gives the exact text the audit ran on. The zip holds the
+inputs as they were when the audit was last run, so a file uploaded after
+the last Run Audit is not in it.
+
+The saved audit contains the full input data, so store and share it with the
+same care as the Dogfish, CAMS, and REDCap exports themselves. The page asks
+for confirmation before you leave it, or close the tab, with decisions that
+are not in a saved audit.
 
 ### REDCap collision guard
 
@@ -281,6 +334,11 @@ src/
   uploadUi.ts             shared upload-row / sanity-check / malformed-row UI
   table.ts                 generic results-table renderer
   nav.ts                    the small "Home · other tool" nav bar
+  leaveGuard.ts          asks before leaving a page with unsaved work
+  decisions.ts           Fix / Don't fix decisions: the decision keys of
+                         each table and the decision CSV columns
+  decisionUi.ts          the editable decision cells in the results tables
+  savedAudit.ts          builds the saved-audit zip and its manifest
   csvExport.ts           generic CSV export + download
   ruleExplanations.ts    plain-English descriptions shown under each table
   types.ts               shared type definitions
@@ -294,9 +352,9 @@ contrast_test_set_1/     sample data for the Contrast Injection Tool, plus
                           Contrast.jl, the Julia script this tool replaces
 ```
 
-`audit.ts`, `contrast.ts`, and `cams.ts` are framework-agnostic (no DOM
-dependency), which is what lets `npm test` exercise both tools' logic from
-Node without a browser.
+`audit.ts`, `contrast.ts`, `cams.ts`, `decisions.ts`, and `savedAudit.ts`
+are framework-agnostic (no DOM dependency), which is what lets `npm test`
+exercise both tools' logic from Node without a browser.
 
 ## Design decisions and constraints
 
@@ -433,6 +491,17 @@ Every file a user uploads is parsed and held in memory in the browser tab; it
 is never written to disk, sent over the network, or shared between the two
 tool pages. Both pages take their own CAMS Data upload; each parses its own
 copy, and neither reuses the other's.
+
+Work carries over between sessions only through a file the user downloads:
+the saved audit zip (see [Saving an audit](#saving-an-audit)). Decisions
+live in memory until then. Do not move them into `localStorage` or any other
+browser storage: the saved audit is the dated record of the audit, and it
+must be the one place the decisions are kept.
+
+A decision key is stored in the saved audit's CSV columns, so a later audit
+can match decisions to its rows. If you rename an issue label in `audit.ts`
+or change what a table's key is made of, decisions saved before the change
+will no longer match.
 
 ### `exceljs`, not `xlsx`/SheetJS
 

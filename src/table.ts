@@ -43,7 +43,9 @@ export function renderTable<T>(
       const td = document.createElement("td");
       const value = col.get(row);
       const classes: string[] = [];
-      if (isBoolColumn[i]) {
+      if (col.render) {
+        td.appendChild(col.render(row));
+      } else if (isBoolColumn[i]) {
         td.textContent = value ? "✓" : "";
         classes.push("bool-cell");
         if (value) classes.push("bool-true");

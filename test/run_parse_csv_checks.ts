@@ -101,14 +101,23 @@ function correctOnlyWarning(text: string, edit: string) {
 // text adds one.
 {
   const parsed = parseCsv('a,b\n1,"x"y"\n2,"z"w"\n');
-  assert.equal(parsed.correctionCount, 0);
+  assert.equal(parsed.corrections.length, 0);
   assert.equal(parsed.warnings.length, 2);
   const once = applyRowCorrection(parsed, 0, '1,"x""y"\n');
-  assert.equal(once.correctionCount, 1);
+  assert.equal(once.corrections.length, 1);
   assert.equal(once.warnings.length, 1);
   const twice = applyRowCorrection(once, 1, '2,"z""w"\n');
-  assert.equal(twice.correctionCount, 2);
+  assert.equal(twice.corrections.length, 2);
   assert.deepEqual(twice.warnings, []);
+
+  // Applying the recorded corrections again, in order, to the file as
+  // loaded rebuilds the same text.
+  const replayed = twice.corrections.reduce(
+    (file, c) => applyRowCorrection(file, c.rowIndex, c.text),
+    parseCsv('a,b\n1,"x"y"\n2,"z"w"\n')
+  );
+  assert.equal(replayed.rawText, twice.rawText);
+  assert.deepEqual(replayed.corrections, twice.corrections);
 }
 
 // A "correction" that leaves the text the same is not counted.
@@ -116,7 +125,7 @@ function correctOnlyWarning(text: string, edit: string) {
   const parsed = parseCsv('a,b\r\n1,"x"y"\r\n2,z\r\n');
   const unchanged = applyRowCorrection(parsed, 0, '1,"x"y"\n');
   assert.equal(unchanged, parsed);
-  assert.equal(unchanged.correctionCount, 0);
+  assert.equal(unchanged.corrections.length, 0);
 }
 
 // The download name adds "-corrected" before the extension.

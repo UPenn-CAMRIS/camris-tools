@@ -7,6 +7,10 @@ export interface Column<T> {
    * instead of staying on one line. Useful for long free-text values,
    * such as a project title. */
   wrap?: boolean;
+  /** Builds this column's cell content on screen, in place of the text
+   * from `get`, for a cell the user can edit. `get` still gives the
+   * value for the CSV export. */
+  render?: (row: T) => Node;
 }
 
 function csvField(value: string | boolean): string {
@@ -21,7 +25,10 @@ export function toCsv<T>(columns: Column<T>[], rows: T[]): string {
 }
 
 export function downloadCsv(filename: string, csv: string): void {
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  downloadBlob(filename, new Blob([csv], { type: "text/csv;charset=utf-8;" }));
+}
+
+export function downloadBlob(filename: string, blob: Blob): void {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
