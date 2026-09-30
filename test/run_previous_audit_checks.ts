@@ -13,7 +13,7 @@ import {
 } from "../src/decisions";
 import { parseCsv } from "../src/parseCsv";
 import {
-  THIS_AUDIT,
+  SINCE_PREVIOUS,
   carryDecisions,
   detailsFromKeyCells,
   earlierDecisionColumns,
@@ -21,7 +21,7 @@ import {
   keyCellsFromDetails,
   readPreviousAudit,
   removedIds,
-  thisAuditLabels,
+  sincePreviousLabels,
   type PreviousAudit,
 } from "../src/previousAudit";
 import {
@@ -41,7 +41,7 @@ import type {
 
 /**
  * Checks for starting an audit with a previous audit for reference: the
- * This Audit labels, filling in and confirming previous "Don't fix"
+ * Since Previous Audit labels, filling in and confirming previous "Don't fix"
  * decisions, the Earlier Decisions Not Flagged table, and saving the
  * previous audit inside the new one.
  *
@@ -51,7 +51,7 @@ import type {
  */
 
 const DECISION_HEADERS =
-  "This Audit,Decision,Reason,Decided By,Decided On,Confirmed By,Confirmed On";
+  "Since Previous Audit,Decision,Reason,Decided By,Decided On,Confirmed By,Confirmed On";
 
 const PREVIOUS_FILES = new Map<string, string>([
   [
@@ -203,7 +203,7 @@ const keyOfIssue = DECISION_KEYS.protocolIssues;
   );
 }
 
-// This Audit labels for the rows this audit flags.
+// Since Previous Audit labels for the rows this audit flags.
 const current: ProtocolIssueRow[] = [
   protocolIssue("100001", "Industry billed as government (MRI)", "CAMS + REDCap"),
   protocolIssue("100002", "Stimulus billing missed", "REDCap letter"),
@@ -211,7 +211,7 @@ const current: ProtocolIssueRow[] = [
   protocolIssue("100009", "Animal billed as human", "Protocol format"),
 ];
 {
-  const labels = thisAuditLabels(
+  const labels = sincePreviousLabels(
     "protocolIssues",
     current,
     keyOfIssue,
@@ -223,18 +223,18 @@ const current: ProtocolIssueRow[] = [
     [
       "Flagged again, source changed (was CAMS)",
       "Flagged again (marked Fix on 2026-08-29)",
-      THIS_AUDIT.new,
-      THIS_AUDIT.flaggedAgain,
+      SINCE_PREVIOUS.new,
+      SINCE_PREVIOUS.flaggedAgain,
     ]
   );
   assert.equal(
-    thisAuditLabels("prodevConsistency", [prodevRow("9", "832793-P")], DECISION_KEYS.prodevConsistency, undefined, previous)
+    sincePreviousLabels("prodevConsistency", [prodevRow("9", "832793-P")], DECISION_KEYS.prodevConsistency, undefined, previous)
       .get(DECISION_KEYS.prodevConsistency(prodevRow("9", "832793-P"))),
     "Flagged again (the previous audit had conflicting decisions)"
   );
   // No previous audit: no labels.
   assert.equal(
-    thisAuditLabels("protocolIssues", current, keyOfIssue, (r) => r.source, null).size,
+    sincePreviousLabels("protocolIssues", current, keyOfIssue, (r) => r.source, null).size,
     0
   );
 }
@@ -299,7 +299,7 @@ function flaggedNow() {
 }
 
 function describe(rows: ReturnType<typeof earlierDecisionRows>) {
-  return rows.map((r) => [r.table, r.keyCells[0], r.thisAudit, r.decision.value]);
+  return rows.map((r) => [r.table, r.keyCells[0], r.sincePrevious, r.decision.value]);
 }
 
 // Next month (September): previous decisions not flagged now. Every
@@ -308,10 +308,10 @@ function describe(rows: ReturnType<typeof earlierDecisionRows>) {
 assert.deepEqual(
   describe(earlierDecisionRows(previous, flaggedNow(), SEPTEMBER, new Set())),
   [
-    ["protocolIssues", "100004", THIS_AUDIT.outsideDates, "Don't fix"],
-    ["mismatches", "AR123456", THIS_AUDIT.outsideDates, "Don't fix"],
-    ["mismatches", "26-9999", THIS_AUDIT.earlier, "Don't fix"],
-    ["prodevConsistency", "832792-P", THIS_AUDIT.outsideDates, "Don't fix"],
+    ["protocolIssues", "100004", SINCE_PREVIOUS.outsideDates, "Don't fix"],
+    ["mismatches", "AR123456", SINCE_PREVIOUS.outsideDates, "Don't fix"],
+    ["mismatches", "26-9999", SINCE_PREVIOUS.earlier, "Don't fix"],
+    ["prodevConsistency", "832792-P", SINCE_PREVIOUS.outsideDates, "Don't fix"],
   ]
 );
 
@@ -321,11 +321,11 @@ assert.deepEqual(
 assert.deepEqual(
   describe(earlierDecisionRows(previous, flaggedNow(), AUGUST, new Set())),
   [
-    ["protocolIssues", "100004", THIS_AUDIT.resolved, "Don't fix"],
-    ["mismatches", "AR123456", THIS_AUDIT.resolved, "Don't fix"],
-    ["mismatches", "26-9999", THIS_AUDIT.earlier, "Don't fix"],
-    ["prodevConsistency", "832792-P", THIS_AUDIT.resolved, "Don't fix"],
-    ["humanMriExternal", "500001", THIS_AUDIT.resolved, "Fix"],
+    ["protocolIssues", "100004", SINCE_PREVIOUS.resolved, "Don't fix"],
+    ["mismatches", "AR123456", SINCE_PREVIOUS.resolved, "Don't fix"],
+    ["mismatches", "26-9999", SINCE_PREVIOUS.earlier, "Don't fix"],
+    ["prodevConsistency", "832792-P", SINCE_PREVIOUS.resolved, "Don't fix"],
+    ["humanMriExternal", "500001", SINCE_PREVIOUS.resolved, "Fix"],
   ]
 );
 

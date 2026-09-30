@@ -65,7 +65,7 @@ import {
   earlierDecisionRows,
   readPreviousAudit,
   removedIds,
-  thisAuditLabels,
+  sincePreviousLabels,
   type EarlierDecisionRow,
   type PreviousAudit,
 } from "../previousAudit";
@@ -599,9 +599,10 @@ export function renderAuditPage(
   let previousAudit: PreviousAudit | null = null;
   let considered = emptyKeySets();
   let removedDecisions: RemovedDecision[] = [];
-  // From the last run: each decision key's This Audit label, the keys
-  // each table flags, and the earlier decisions this audit does not flag.
-  let thisAudit: Record<DecisionTableId, Map<string, string>> = {
+  // From the last run: each decision key's Since Previous Audit label,
+  // the keys each table flags, and the earlier decisions this audit does
+  // not flag.
+  let sincePrevious: Record<DecisionTableId, Map<string, string>> = {
     protocolIssues: new Map(),
     mismatches: new Map(),
     prodevConsistency: new Map(),
@@ -661,15 +662,17 @@ export function renderAuditPage(
     }
   });
 
-  /** A decision table's This Audit column: how each row compares with
-   * the previous audit. Blank when there is none. */
-  function thisAuditColumn<T>(
+  /** A decision table's Since Previous Audit column: how each row
+   * compares with the previous audit. Left out, on screen and in the CSV,
+   * when there is no previous audit. */
+  function sincePreviousColumn<T>(
     table: DecisionTableId,
     keyFn: (row: T) => string
   ): Column<T> {
     return {
-      header: "This Audit",
-      get: (row) => thisAudit[table].get(keyFn(row)) ?? "",
+      header: "Since Previous Audit",
+      get: (row) => sincePrevious[table].get(keyFn(row)) ?? "",
+      shown: () => previousAudit !== null,
     };
   }
 
@@ -691,7 +694,7 @@ export function renderAuditPage(
     { header: "Events", get: (r) => String(r.events) },
     { header: "First Scan", get: (r) => r.firstScan },
     { header: "Last Scan", get: (r) => r.lastScan },
-    thisAuditColumn("protocolIssues", DECISION_KEYS.protocolIssues),
+    sincePreviousColumn("protocolIssues", DECISION_KEYS.protocolIssues),
     ...protocolIssueDecisions.columns,
   ];
 
@@ -702,7 +705,7 @@ export function renderAuditPage(
     { header: "No Active REDCap Match", get: (r) => r.noActiveRedcapMatch },
     { header: "No REDCap Funding Type", get: (r) => r.noRedcapFundingType },
     { header: "Invalid Protocol Format", get: (r) => r.invalidProtocolFormat },
-    thisAuditColumn("mismatches", DECISION_KEYS.mismatches),
+    sincePreviousColumn("mismatches", DECISION_KEYS.mismatches),
     ...mismatchDecisions.columns,
   ];
 
@@ -729,7 +732,7 @@ export function renderAuditPage(
     { header: "Mandatory Service", get: (r) => r.mandatoryService },
     { header: "Scheduling User", get: (r) => r.schedulingUser },
     { header: "Check-In User", get: (r) => r.checkInUser },
-    thisAuditColumn("humanMriExternal", DECISION_KEYS.humanMriExternal),
+    sincePreviousColumn("humanMriExternal", DECISION_KEYS.humanMriExternal),
     ...humanMriExternalDecisions.columns,
   ];
 
@@ -742,7 +745,7 @@ export function renderAuditPage(
     { header: "Prodev Service Billed", get: (r) => r.prodevServiceBilled },
     { header: "Prodev Service Without Suffix", get: (r) => r.prodevServiceWithoutSuffix },
     { header: "Suffix Without Prodev Service", get: (r) => r.suffixWithoutProdevService },
-    thisAuditColumn("prodevConsistency", DECISION_KEYS.prodevConsistency),
+    sincePreviousColumn("prodevConsistency", DECISION_KEYS.prodevConsistency),
     ...prodevConsistencyDecisions.columns,
   ];
 
@@ -1086,33 +1089,33 @@ export function renderAuditPage(
   }
 
   /** Compares the last run with the previous audit: each decision row's
-   * This Audit label, the previous "Don't fix" decisions filled in on
-   * rows flagged again, and the earlier decisions this audit does not
-   * flag. */
+   * Since Previous Audit label, the previous "Don't fix" decisions filled
+   * in on rows flagged again, and the earlier decisions this audit does
+   * not flag. */
   function compareWithPrevious(): void {
-    thisAudit = {
-      protocolIssues: thisAuditLabels(
+    sincePrevious = {
+      protocolIssues: sincePreviousLabels(
         "protocolIssues",
         lastResult.protocolIssues,
         DECISION_KEYS.protocolIssues,
         (r) => r.source,
         previousAudit
       ),
-      mismatches: thisAuditLabels(
+      mismatches: sincePreviousLabels(
         "mismatches",
         lastResult.dedupedMismatches,
         DECISION_KEYS.mismatches,
         undefined,
         previousAudit
       ),
-      prodevConsistency: thisAuditLabels(
+      prodevConsistency: sincePreviousLabels(
         "prodevConsistency",
         lastResult.prodevConsistencyIssues,
         DECISION_KEYS.prodevConsistency,
         undefined,
         previousAudit
       ),
-      humanMriExternal: thisAuditLabels(
+      humanMriExternal: sincePreviousLabels(
         "humanMriExternal",
         lastResult.humanMriExternalEvents,
         DECISION_KEYS.humanMriExternal,

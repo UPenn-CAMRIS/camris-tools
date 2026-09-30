@@ -239,6 +239,21 @@ assert.notEqual(
   );
 }
 
+// A column whose `shown` returns false is left out of the CSV, as it is
+// on screen; a screen-only column is never in it.
+{
+  let shown = false;
+  const columns: Column<{ a: string; b: string }>[] = [
+    { header: "A", get: (r) => r.a },
+    { header: "B", get: (r) => r.b, shown: () => shown },
+    { header: "", get: () => "", screenOnly: true },
+  ];
+  const rows = [{ a: "1", b: "2" }];
+  assert.equal(toCsv(columns, rows), "A\r\n1");
+  shown = true;
+  assert.equal(toCsv(columns, rows), "A,B\r\n1,2");
+}
+
 // The Dogfish scan range skips blank Scan Times; no Scan Time at all
 // gives no range.
 assert.deepEqual(
