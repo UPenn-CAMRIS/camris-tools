@@ -1,5 +1,5 @@
 import { strFromU8, strToU8, unzipSync, zipSync, type Unzipped } from "fflate";
-import type { DecisionTableId } from "./decisions";
+import { DECISION_TABLE_LABELS, type DecisionTableId } from "./decisions";
 import type { CsvRow, RowCorrection } from "./parseCsv";
 
 /** A saved audit is one zip file holding everything needed to open the
@@ -11,10 +11,18 @@ import type { CsvRow, RowCorrection } from "./parseCsv";
  *   inputs/dogfish/<uploaded file name>
  *   inputs/cams/<uploaded file name>
  *   inputs/redcap/<uploaded file name>
- *   reports/<one CSV per results table>
+ *   reports/<one CSV per results table, and the earlier decisions>
+ *   previous/reports/<the previous audit's decision CSVs>
+ *
+ * previous/ is there only for an audit started with a previous audit for
+ * reference. It holds what this audit needs of it, so opening this audit
+ * again does not need the previous one's file.
  */
 export const SAVED_AUDIT_FORMAT = "camris-audit";
-export const SAVED_AUDIT_FORMAT_VERSION = 1;
+/** 2 added the previous audit, the This Audit and Confirmed By columns,
+ * and the earlier-decisions CSV. This version opens files of versions 1
+ * and 2. */
+export const SAVED_AUDIT_FORMAT_VERSION = 2;
 
 export type AuditInputKey = "dogfish" | "cams" | "redcap";
 
@@ -28,6 +36,19 @@ export const DECISION_REPORT_FILES: Record<DecisionTableId, string> = {
   prodevConsistency: "prodev_naming_consistency.csv",
   humanMriExternal: "human_mri_external_events.csv",
 };
+
+/** The CSV file, in reports/, of the Earlier Decisions Not Flagged table:
+ * decisions carried from earlier audits whose rows this audit does not
+ * flag. */
+export const EARLIER_DECISIONS_FILE = "earlier_decisions_not_flagged.csv";
+
+/** The CSV files of a previous audit that the next audit reads: the four
+ * decision tables and the earlier decisions. A version-1 file has no
+ * earlier decisions. */
+export const PREVIOUS_AUDIT_FILES = [
+  ...Object.values(DECISION_REPORT_FILES),
+  EARLIER_DECISIONS_FILE,
+];
 
 /** The most a saved audit may hold once unpacked. A month of exports is a
  * few MB; the limit stops a damaged or wrong file from hanging the page. */
@@ -50,9 +71,27 @@ export interface SavedInput {
   corrections: RowCorrection[];
 }
 
+/** An earlier decision that a reviewer removed from this audit, so it is
+ * not carried into later audits. */
+export interface RemovedDecision {
+  table: DecisionTableId;
+  /** The key columns' text, in the order of DECISION_KEY_COLUMNS. */
+  keyCells: string[];
+}
+
+/** The previous audit an audit was started with, for reference. */
+export interface PreviousAuditRecord {
+  auditId: string;
+  savedAt: string;
+  savedBy: string;
+  dogfishScanRange: ScanRange | null;
+  /** Earlier decisions removed in this audit. */
+  removedDecisions: RemovedDecision[];
+}
+
 export interface AuditManifest {
   format: typeof SAVED_AUDIT_FORMAT;
-  formatVersion: typeof SAVED_AUDIT_FORMAT_VERSION;
+  formatVersion: 1 | 2;
   /** Stays the same each time the same audit is saved again. */
   auditId: string;
   /** When the audit was first run, as local time with its UTC offset. */
@@ -68,6 +107,9 @@ export interface AuditManifest {
   inputs: Record<AuditInputKey, SavedInput>;
   /** The results tables' CSV files, as paths inside the zip. */
   reports: string[];
+  /** null for an audit started without a previous audit, and in a
+   * version-1 file. */
+  previousAudit: PreviousAuditRecord | null;
 }
 
 export interface AuditInputFile {
@@ -92,6 +134,9 @@ export interface SavedAuditDetails {
   dogfishScanRange: ScanRange | null;
   inputs: Record<AuditInputKey, AuditInputFile>;
   reports: ReportFile[];
+  /** The previous audit, with its CSV files as PREVIOUS_AUDIT_FILES names
+   * them; null when there is none. */
+  previous: { record: PreviousAuditRecord; reports: ReportFile[] } | null;
 }
 
 /** A file name cannot add folders inside the zip. */
@@ -124,6 +169,9 @@ export function buildSavedAudit(details: SavedAuditDetails): {
     files[file] = strToU8(report.csv);
     reports.push(file);
   }
+  for (const report of details.previous?.reports ?? []) {
+    files[`previous/reports/${safeName(report.filename)}`] = strToU8(report.csv);
+  }
 
   const manifest: AuditManifest = {
     format: SAVED_AUDIT_FORMAT,
@@ -136,6 +184,7 @@ export function buildSavedAudit(details: SavedAuditDetails): {
     dogfishScanRange: details.dogfishScanRange,
     inputs,
     reports,
+    previousAudit: details.previous?.record ?? null,
   };
   files["manifest.json"] = strToU8(JSON.stringify(manifest, null, 2) + "\n");
 
@@ -210,10 +259,44 @@ export interface OpenedAudit {
   inputs: Record<AuditInputKey, AuditInputFile>;
   /** Each report CSV's text, by its file name without "reports/". */
   reports: Map<string, string>;
+  /** The previous audit this audit was started with, and its CSV files'
+   * text by file name without "previous/reports/"; null when none. */
+  previous: { record: PreviousAuditRecord; reports: Map<string, string> } | null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isScanRange(value: unknown): value is ScanRange | null {
+  return (
+    value === null ||
+    (isRecord(value) &&
+      typeof value.first === "string" &&
+      typeof value.last === "string")
+  );
+}
+
+function isRemovedDecision(value: unknown): value is RemovedDecision {
+  return (
+    isRecord(value) &&
+    typeof value.table === "string" &&
+    value.table in DECISION_TABLE_LABELS &&
+    Array.isArray(value.keyCells) &&
+    value.keyCells.every((cell) => typeof cell === "string")
+  );
+}
+
+function isPreviousAuditRecord(value: unknown): value is PreviousAuditRecord {
+  return (
+    isRecord(value) &&
+    typeof value.auditId === "string" &&
+    typeof value.savedAt === "string" &&
+    typeof value.savedBy === "string" &&
+    isScanRange(value.dogfishScanRange) &&
+    Array.isArray(value.removedDecisions) &&
+    value.removedDecisions.every(isRemovedDecision)
+  );
 }
 
 function isCorrection(value: unknown): value is RowCorrection {
@@ -270,7 +353,7 @@ export function openSavedAudit(zip: Uint8Array): OpenedAudit {
       "This audit was saved by a newer version of the tool. Reload the page to get the latest version, then open it again."
     );
   }
-  if (manifest.formatVersion !== SAVED_AUDIT_FORMAT_VERSION) {
+  if (manifest.formatVersion !== 1 && manifest.formatVersion !== 2) {
     throw notSavedAudit("its manifest.json has an unknown format version.");
   }
   for (const field of ["auditId", "createdAt", "savedAt", "savedBy", "appVersion"]) {
@@ -308,5 +391,25 @@ export function openSavedAudit(zip: Uint8Array): OpenedAudit {
     }
   }
 
-  return { manifest: manifest as unknown as AuditManifest, inputs, reports };
+  let previous: OpenedAudit["previous"] = null;
+  const previousRecord = manifest.previousAudit ?? null;
+  if (previousRecord !== null) {
+    if (!isPreviousAuditRecord(previousRecord)) {
+      throw notSavedAudit("its manifest.json does not describe its previous audit.");
+    }
+    const previousReports = new Map<string, string>();
+    for (const [path, bytes] of Object.entries(files)) {
+      if (path.startsWith("previous/reports/")) {
+        previousReports.set(path.slice("previous/reports/".length), strFromU8(bytes));
+      }
+    }
+    previous = { record: previousRecord, reports: previousReports };
+  }
+
+  return {
+    manifest: { ...manifest, previousAudit: previousRecord } as unknown as AuditManifest,
+    inputs,
+    reports,
+    previous,
+  };
 }

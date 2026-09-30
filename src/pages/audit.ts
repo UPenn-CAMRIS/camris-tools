@@ -50,16 +50,31 @@ import { renderPageNav } from "../nav";
 import {
   DECISION_KEYS,
   countNeedingDecision,
+  decisionKeyCellsFromCsv,
+  decisionKeyFromCells,
   decisionsFromCsv,
   emptyDecisionStore,
   type Decision,
   type DecisionStore,
   type DecisionTableId,
 } from "../decisions";
+import {
+  DECISION_TABLE_IDS,
+  carryDecisions,
+  earlierDecisionColumns,
+  earlierDecisionRows,
+  readPreviousAudit,
+  removedIds,
+  thisAuditLabels,
+  type EarlierDecisionRow,
+  type PreviousAudit,
+} from "../previousAudit";
 import { decisionTableUi, type DecisionContext } from "../decisionUi";
 import {
   AUDIT_INPUT_KEYS,
   DECISION_REPORT_FILES,
+  EARLIER_DECISIONS_FILE,
+  PREVIOUS_AUDIT_FILES,
   buildSavedAudit,
   localDate,
   localTimestamp,
@@ -70,6 +85,7 @@ import {
   type AuditInputFile,
   type AuditInputKey,
   type AuditManifest,
+  type RemovedDecision,
   type ReportFile,
   type ScanRange,
 } from "../savedAudit";
@@ -134,6 +150,39 @@ interface PreparedSavedAudit {
     { filename: string; bytes: Uint8Array; parsed: ParsedCsv }
   >;
   decisions: DecisionStore;
+  /** Every decision key listed in the four decision tables' files, with a
+   * decision or not: a previous audit's decisions are not filled in on
+   * these again. */
+  considered: Record<DecisionTableId, Set<string>>;
+  /** The previous audit the saved audit was started with, if any. */
+  previous: PreviousAudit | null;
+}
+
+/** An empty set of keys for each decision table. */
+function emptyKeySets(): Record<DecisionTableId, Set<string>> {
+  return {
+    protocolIssues: new Set(),
+    mismatches: new Set(),
+    prodevConsistency: new Set(),
+    humanMriExternal: new Set(),
+  };
+}
+
+/** A saved audit as the previous audit of a new one. Its own previous
+ * audit, and the decisions removed in it, do not carry over: its CSV
+ * files already hold what it passed on. */
+function previousAuditFromZip(opened: ReturnType<typeof openSavedAudit>): PreviousAudit {
+  const { manifest } = opened;
+  return readPreviousAudit(
+    {
+      auditId: manifest.auditId,
+      savedAt: manifest.savedAt,
+      savedBy: manifest.savedBy,
+      dogfishScanRange: manifest.dogfishScanRange,
+      removedDecisions: [],
+    },
+    opened.reports
+  );
 }
 
 async function prepareSavedAudit(file: File): Promise<PreparedSavedAudit> {
@@ -153,16 +202,25 @@ async function prepareSavedAudit(file: File): Promise<PreparedSavedAudit> {
   }
 
   const decisions = emptyDecisionStore();
-  for (const table of Object.keys(DECISION_REPORT_FILES) as DecisionTableId[]) {
+  const considered = emptyKeySets();
+  for (const table of DECISION_TABLE_IDS) {
     const reportFile = DECISION_REPORT_FILES[table];
     const csv = opened.reports.get(reportFile);
     if (csv === undefined) {
       throw new Error(`This saved audit is missing reports/${reportFile}.`);
     }
-    decisions[table] = decisionsFromCsv(table, parseCsv(csv).rows);
+    const rows = parseCsv(csv).rows;
+    decisions[table] = decisionsFromCsv(table, rows);
+    for (const row of rows) {
+      considered[table].add(decisionKeyFromCells(decisionKeyCellsFromCsv(table, row)));
+    }
   }
 
-  return { manifest: opened.manifest, inputs, decisions };
+  const previous = opened.previous
+    ? readPreviousAudit(opened.previous.record, opened.previous.reports)
+    : null;
+
+  return { manifest: opened.manifest, inputs, decisions, considered, previous };
 }
 
 /** A saved audit already read and checked, and the name of its file. */
@@ -172,11 +230,14 @@ interface OpenedSavedAudit {
 }
 
 /** Renders the Audit Tool page in `mode`. `opened`, in "open" mode, is a
- * saved audit to show as soon as the page is ready. */
+ * saved audit to show as soon as the page is ready. `startingPrevious`,
+ * in "new" mode, is the previous audit to start with: the audit that was
+ * open when "Start next audit from this one" was clicked. */
 export function renderAuditPage(
   app: HTMLElement,
   mode: AuditMode = "new",
-  opened?: OpenedSavedAudit
+  opened?: OpenedSavedAudit,
+  startingPrevious?: PreviousAudit
 ): void {
   const loadedFiles = new Map<FileSlot["key"], ParsedCsv>();
   const loadedFilenames = new Map<FileSlot["key"], string>();
@@ -232,6 +293,21 @@ export function renderAuditPage(
           ${slot.key === "redcap" ? '<div id="redcap-collisions"></div>' : ""}
         </div>`
       ).join("")}
+      ${
+        mode === "new"
+          ? `<div class="upload-slot">
+        <div class="upload-row">
+          <div class="upload-label">
+            <label for="file-previous">Previous Audit</label>
+            <span class="upload-formats">Optional .zip file</span>
+          </div>
+          <input type="file" id="file-previous" accept=".zip" />
+          <span class="file-status" id="status-previous"></span>
+        </div>
+        <p class="table-note">A saved audit to compare with. Its "Don't fix" decisions are filled in for a reviewer to confirm, row by row.</p>
+      </div>`
+          : ""
+      }
     </div>
 
     <div class="run-row">
@@ -248,6 +324,7 @@ export function renderAuditPage(
       <div class="save-bar">
         <button id="save-audit">Save audit (.zip)</button>
         <span class="save-status" id="save-status"></span>
+        <button type="button" class="secondary" id="next-audit">Start next audit from this one</button>
       </div>
       <p class="table-note save-note">The saved audit holds the three input files as uploaded, any row corrections made here, and every table below with its decisions. Store it with the same care as the exports themselves.</p>
 
@@ -330,6 +407,16 @@ export function renderAuditPage(
         </div>
         <div class="table-wrap" id="human-mri-external-table"></div>
         <p class="table-note">Every Dogfish row billed at the external MRI rate, on any scanner — not filtered by any audit rule. This includes both the current label, "Human MRI (industry/external)", and the old label, "Human MRI (external)". The Service column shows which one each row used.</p>
+      </div>
+
+      <div class="results-section" id="earlier-section" hidden>
+        <details class="earlier-decisions">
+          <summary>
+            <h2>Earlier Decisions Not Flagged <span class="count" id="earlier-count"></span></h2>
+          </summary>
+          <p class="table-note">Decisions from the previous audit whose rows this audit does not flag. Each "Don't fix" here moves forward to the next audit, so it is ready if the row is flagged again; remove it with ✕ to stop that. A "Fix" is listed once, when this upload covers the scans it was flagged on, as resolved.</p>
+          <div class="table-wrap" id="earlier-table"></div>
+        </details>
       </div>
     </div>
   `;
@@ -502,6 +589,26 @@ export function renderAuditPage(
   // last save.
   let unsaved = false;
   let lastSaved: { filename: string; at: Date } | null = null;
+  // The initials in the last saved file: this page's save, or the saved
+  // audit opened on it.
+  let lastSavedBy = "";
+
+  // The previous audit, for reference, and what this audit has done with
+  // it. `considered` holds each table's keys whose previous decision was
+  // already weighed for filling in (see carryDecisions).
+  let previousAudit: PreviousAudit | null = null;
+  let considered = emptyKeySets();
+  let removedDecisions: RemovedDecision[] = [];
+  // From the last run: each decision key's This Audit label, the keys
+  // each table flags, and the earlier decisions this audit does not flag.
+  let thisAudit: Record<DecisionTableId, Map<string, string>> = {
+    protocolIssues: new Map(),
+    mismatches: new Map(),
+    prodevConsistency: new Map(),
+    humanMriExternal: new Map(),
+  };
+  let flaggedKeys = emptyKeySets();
+  let earlierRows: EarlierDecisionRow[] = [];
 
   const hasAnyDecision = () =>
     Object.values(decisions).some((byKey: Map<string, Decision>) => byKey.size > 0);
@@ -554,6 +661,18 @@ export function renderAuditPage(
     }
   });
 
+  /** A decision table's This Audit column: how each row compares with
+   * the previous audit. Blank when there is none. */
+  function thisAuditColumn<T>(
+    table: DecisionTableId,
+    keyFn: (row: T) => string
+  ): Column<T> {
+    return {
+      header: "This Audit",
+      get: (row) => thisAudit[table].get(keyFn(row)) ?? "",
+    };
+  }
+
   // Each column list below drives both the table on screen and its CSV
   // file in the saved audit, so the two always match.
   const violationIssueColumns: Column<ViolationIssueRow>[] = [
@@ -572,6 +691,7 @@ export function renderAuditPage(
     { header: "Events", get: (r) => String(r.events) },
     { header: "First Scan", get: (r) => r.firstScan },
     { header: "Last Scan", get: (r) => r.lastScan },
+    thisAuditColumn("protocolIssues", DECISION_KEYS.protocolIssues),
     ...protocolIssueDecisions.columns,
   ];
 
@@ -582,6 +702,7 @@ export function renderAuditPage(
     { header: "No Active REDCap Match", get: (r) => r.noActiveRedcapMatch },
     { header: "No REDCap Funding Type", get: (r) => r.noRedcapFundingType },
     { header: "Invalid Protocol Format", get: (r) => r.invalidProtocolFormat },
+    thisAuditColumn("mismatches", DECISION_KEYS.mismatches),
     ...mismatchDecisions.columns,
   ];
 
@@ -608,6 +729,7 @@ export function renderAuditPage(
     { header: "Mandatory Service", get: (r) => r.mandatoryService },
     { header: "Scheduling User", get: (r) => r.schedulingUser },
     { header: "Check-In User", get: (r) => r.checkInUser },
+    thisAuditColumn("humanMriExternal", DECISION_KEYS.humanMriExternal),
     ...humanMriExternalDecisions.columns,
   ];
 
@@ -620,6 +742,7 @@ export function renderAuditPage(
     { header: "Prodev Service Billed", get: (r) => r.prodevServiceBilled },
     { header: "Prodev Service Without Suffix", get: (r) => r.prodevServiceWithoutSuffix },
     { header: "Suffix Without Prodev Service", get: (r) => r.suffixWithoutProdevService },
+    thisAuditColumn("prodevConsistency", DECISION_KEYS.prodevConsistency),
     ...prodevConsistencyDecisions.columns,
   ];
 
@@ -661,6 +784,39 @@ export function renderAuditPage(
     { header: "External Rate Billed On", get: (r) => r.externalRateBilledOn },
   ];
 
+  // The ✕ column removes an earlier decision so it stops moving forward.
+  // It is an action, not data, so the CSV file leaves it out.
+  const earlierColumns: Column<EarlierDecisionRow>[] = [
+    ...earlierDecisionColumns(),
+    {
+      header: "",
+      get: () => "",
+      screenOnly: true,
+      render: (row) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "remove-earlier";
+        button.textContent = "✕";
+        button.title = "Stop carrying this decision into later audits";
+        button.setAttribute("aria-label", button.title);
+        button.addEventListener("click", () => {
+          if (
+            !window.confirm(
+              "Stop carrying this decision into later audits? It will not be in the saved audit."
+            )
+          ) {
+            return;
+          }
+          removedDecisions.push({ table: row.table, keyCells: row.keyCells });
+          refreshEarlierDecisions();
+          unsaved = true;
+          refreshSaveStatus();
+        });
+        return button;
+      },
+    },
+  ];
+
   let lastResult: AuditResult = {
     violations: [],
     violationIssues: [],
@@ -692,6 +848,7 @@ export function renderAuditPage(
       auditId ??= newAuditId();
       createdAt ||= localTimestamp(new Date());
       unsaved = true;
+      compareWithPrevious();
       const {
         violationIssues,
         protocolIssues,
@@ -921,7 +1078,91 @@ export function renderAuditPage(
         filename: DECISION_REPORT_FILES.humanMriExternal,
         csv: toCsv(humanMriExternalColumns, lastResult.humanMriExternalEvents),
       },
+      {
+        filename: EARLIER_DECISIONS_FILE,
+        csv: toCsv(earlierColumns, earlierRows),
+      },
     ];
+  }
+
+  /** Compares the last run with the previous audit: each decision row's
+   * This Audit label, the previous "Don't fix" decisions filled in on
+   * rows flagged again, and the earlier decisions this audit does not
+   * flag. */
+  function compareWithPrevious(): void {
+    thisAudit = {
+      protocolIssues: thisAuditLabels(
+        "protocolIssues",
+        lastResult.protocolIssues,
+        DECISION_KEYS.protocolIssues,
+        (r) => r.source,
+        previousAudit
+      ),
+      mismatches: thisAuditLabels(
+        "mismatches",
+        lastResult.dedupedMismatches,
+        DECISION_KEYS.mismatches,
+        undefined,
+        previousAudit
+      ),
+      prodevConsistency: thisAuditLabels(
+        "prodevConsistency",
+        lastResult.prodevConsistencyIssues,
+        DECISION_KEYS.prodevConsistency,
+        undefined,
+        previousAudit
+      ),
+      humanMriExternal: thisAuditLabels(
+        "humanMriExternal",
+        lastResult.humanMriExternalEvents,
+        DECISION_KEYS.humanMriExternal,
+        undefined,
+        previousAudit
+      ),
+    };
+    flaggedKeys = {
+      protocolIssues: new Set(lastResult.protocolIssues.map(DECISION_KEYS.protocolIssues)),
+      mismatches: new Set(lastResult.dedupedMismatches.map(DECISION_KEYS.mismatches)),
+      prodevConsistency: new Set(
+        lastResult.prodevConsistencyIssues.map(DECISION_KEYS.prodevConsistency)
+      ),
+      humanMriExternal: new Set(
+        lastResult.humanMriExternalEvents.map(DECISION_KEYS.humanMriExternal)
+      ),
+    };
+    if (previousAudit) {
+      for (const table of DECISION_TABLE_IDS) {
+        carryDecisions(
+          flaggedKeys[table],
+          previousAudit.entries[table],
+          decisions[table],
+          considered[table]
+        );
+      }
+    }
+    refreshEarlierDecisions();
+  }
+
+  /** Lists and shows the earlier decisions this audit does not flag. A
+   * key flagged earlier in this session keeps the decision made on it. */
+  function refreshEarlierDecisions(): void {
+    earlierRows = earlierDecisionRows(
+      previousAudit,
+      flaggedKeys,
+      lastRun?.dogfishScanRange ?? null,
+      removedIds(removedDecisions)
+    ).map((row) => ({
+      ...row,
+      decision: decisions[row.table].get(row.key) ?? row.decision,
+    }));
+    document.getElementById("earlier-section")!.hidden = previousAudit === null;
+    setCount("earlier-count", earlierRows.length);
+    renderTable(
+      "earlier-table",
+      earlierColumns,
+      earlierRows,
+      "No earlier decisions to carry forward."
+    );
   }
 
   saveButton.addEventListener("click", () => {
@@ -936,6 +1177,13 @@ export function renderAuditPage(
       dogfishScanRange: lastRun.dogfishScanRange,
       inputs: lastRun.inputs,
       reports: reportFiles(),
+      previous: previousAudit && {
+        record: { ...previousAudit.record, removedDecisions },
+        reports: [...previousAudit.reports].map(([filename, csv]) => ({
+          filename,
+          csv,
+        })),
+      },
     });
     const filename = savedAuditFilename(
       lastRun.dogfishScanRange,
@@ -947,7 +1195,31 @@ export function renderAuditPage(
     downloadBlob(filename, new Blob([bytes], { type: "application/zip" }));
     unsaved = false;
     lastSaved = { filename, at: now };
+    lastSavedBy = reviewerInput.value.trim();
     refreshSaveStatus();
+  });
+
+  // Starts a new audit with this one as its previous audit: its decision
+  // files as they stand now, saved or not.
+  document.getElementById("next-audit")!.addEventListener("click", () => {
+    if (!lastRun || !auditId || !confirmLeave()) return;
+    const reports = new Map(
+      reportFiles()
+        .filter((f) => PREVIOUS_AUDIT_FILES.includes(f.filename))
+        .map((f) => [f.filename, f.csv] as const)
+    );
+    const saved = !unsaved && lastSaved !== null;
+    const previous = readPreviousAudit(
+      {
+        auditId,
+        savedAt: localTimestamp(saved ? lastSaved!.at : new Date()),
+        savedBy: saved ? lastSavedBy : reviewerInput.value.trim(),
+        dogfishScanRange: lastRun.dogfishScanRange,
+        removedDecisions: [],
+      },
+      reports
+    );
+    renderAuditPage(app, "new", undefined, previous);
   });
 
   for (const tab of app.querySelectorAll<HTMLButtonElement>(".mode-tab")) {
@@ -973,6 +1245,10 @@ export function renderAuditPage(
     }
     auditId = manifest.auditId;
     createdAt = manifest.createdAt;
+    lastSavedBy = manifest.savedBy;
+    previousAudit = prepared.previous;
+    considered = prepared.considered;
+    removedDecisions = prepared.previous?.record.removedDecisions ?? [];
 
     const savedAt = new Date(manifest.savedAt);
     const by = manifest.savedBy ? ` by ${manifest.savedBy}` : "";
@@ -982,6 +1258,15 @@ export function renderAuditPage(
       "loaded"
     );
     renderVersionNote(manifest.appVersion);
+    if (prepared.previous) {
+      const { savedAt: previousSavedAt, savedBy } = prepared.previous.record;
+      const note = document.createElement("p");
+      note.className = "table-note";
+      note.textContent =
+        `Compared with the previous audit saved ` +
+        `${describeTime(new Date(previousSavedAt))}${savedBy ? ` by ${savedBy}` : ""}.`;
+      document.getElementById("saved-audit-note")!.appendChild(note);
+    }
 
     updateRunButtonState();
     if (!runButton.disabled) runButton.click();
@@ -1037,5 +1322,49 @@ export function renderAuditPage(
       else if (confirmLeave()) renderAuditPage(app, "open", next);
     });
     if (opened) showSaved(opened);
+  }
+
+  /** Uses `next` as the previous audit, in place of any other. */
+  function usePrevious(next: PreviousAudit, status: string): void {
+    previousAudit = next;
+    considered = emptyKeySets();
+    removedDecisions = [];
+    // Decisions filled in from another previous audit, and not confirmed,
+    // do not belong to this one.
+    for (const table of DECISION_TABLE_IDS) {
+      for (const [key, decision] of decisions[table]) {
+        if (decision.unconfirmed) decisions[table].delete(key);
+      }
+    }
+    setStatus("previous", status, "loaded");
+    if (lastRun && !runButton.disabled) runButton.click();
+  }
+
+  if (mode === "new") {
+    const input = document.getElementById("file-previous") as HTMLInputElement;
+    input.addEventListener("change", async () => {
+      const file = input.files?.[0];
+      input.value = "";
+      if (!file) return;
+      errorBanner.style.display = "none";
+      setStatus("previous", `Reading ${file.name}...`);
+      let next: PreviousAudit;
+      try {
+        next = previousAuditFromZip(
+          openSavedAudit(new Uint8Array(await file.arrayBuffer()))
+        );
+      } catch (err) {
+        setStatus("previous", `Failed to read ${file.name}`);
+        const why = err instanceof Error ? err.message : String(err);
+        showError(`${file.name}: ${why}`);
+        return;
+      }
+      const { savedAt, savedBy } = next.record;
+      usePrevious(
+        next,
+        `${file.name} — saved ${describeTime(new Date(savedAt))}${savedBy ? ` by ${savedBy}` : ""}`
+      );
+    });
+    if (startingPrevious) usePrevious(startingPrevious, "The audit you had open");
   }
 }

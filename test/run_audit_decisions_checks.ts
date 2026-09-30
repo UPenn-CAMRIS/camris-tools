@@ -175,21 +175,28 @@ assert.notEqual(
     reason: "PI confirmed",
     decidedBy: "DT",
     decidedOn: "2026-09-30",
+    confirmedBy: "DT",
     confirmedOn: "2026-09-30",
   });
   recordDecision(store.protocolIssues, "k", "", "PI confirmed", "DT", "2026-09-30");
   assert.equal(store.protocolIssues.has("k"), false);
 }
 
-// A row needs a decision when it has none, or when it is "Don't fix"
-// with no reason. "Fix" needs no reason.
+// A row needs a decision when it has none, when its carried decision is
+// not confirmed yet, or when it is "Don't fix" with no reason. "Fix"
+// needs no reason.
 {
   const decided = {
     decidedBy: "DT",
     decidedOn: "2026-09-30",
+    confirmedBy: "DT",
     confirmedOn: "2026-09-30",
   };
   assert.equal(needsDecision(undefined), true);
+  assert.equal(
+    needsDecision({ value: "Don't fix", reason: "x", ...decided, unconfirmed: true }),
+    true
+  );
   assert.equal(needsDecision({ value: "Don't fix", reason: "", ...decided }), true);
   assert.equal(needsDecision({ value: "Don't fix", reason: "x", ...decided }), false);
   assert.equal(needsDecision({ value: "Fix", reason: "", ...decided }), false);
@@ -224,10 +231,10 @@ assert.notEqual(
   assert.equal(
     toCsv(columns, rows),
     [
-      "Event ID,Decision,Reason,Decided By,Decided On,Confirmed On",
-      "1,Don't fix,\"External site, sponsor pays\",DT,2026-09-30,2026-09-30",
-      "2,Don't fix,\"External site, sponsor pays\",DT,2026-09-30,2026-09-30",
-      "3,,,,,",
+      "Event ID,Decision,Reason,Decided By,Decided On,Confirmed By,Confirmed On",
+      "1,Don't fix,\"External site, sponsor pays\",DT,2026-09-30,DT,2026-09-30",
+      "2,Don't fix,\"External site, sponsor pays\",DT,2026-09-30,DT,2026-09-30",
+      "3,,,,,,",
     ].join("\r\n")
   );
 }
@@ -310,6 +317,7 @@ assert.equal(
     reports: [
       { filename: "audit_mismatches.csv", csv: "Protocol Number\r\nAR123456" },
     ],
+    previous: null,
   });
 
   const files = unzipSync(zip);
@@ -324,7 +332,8 @@ assert.equal(
   const saved = JSON.parse(strFromU8(files["manifest.json"])) as AuditManifest;
   assert.deepEqual(saved, manifest);
   assert.equal(saved.format, "camris-audit");
-  assert.equal(saved.formatVersion, 1);
+  assert.equal(saved.formatVersion, 2);
+  assert.equal(saved.previousAudit, null);
   assert.equal(saved.savedBy, "DT");
   assert.deepEqual(saved.inputs.cams, {
     file: "inputs/cams/CAMS_Data.csv",

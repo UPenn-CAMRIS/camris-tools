@@ -165,7 +165,8 @@ each results table in the app itself.
 Four tables take a decision on each flagged row: Violations by Protocol,
 Mismatches, Prodev Naming Consistency, and Human MRI (Industry/External)
 Events. A decision is **Fix** or **Don't fix**, with a Reason (required for
-Don't fix), and the tool fills in Decided By, Decided On, and Confirmed On.
+Don't fix), and the tool fills in Decided By, Decided On, Confirmed By, and
+Confirmed On.
 Enter your initials next to Run Audit first; the decision controls stay
 disabled until you do.
 
@@ -198,7 +199,10 @@ inputs/dogfish/<uploaded file name>    the three input files, exactly as
 inputs/cams/<uploaded file name>       uploaded
 inputs/redcap/<uploaded file name>
 reports/<one CSV per results table>    with the decision columns, where a
-                                       table takes decisions
+                                       table takes decisions, and the
+                                       earlier decisions not flagged
+previous/reports/<decision CSVs>       the previous audit's decision
+                                       files, when there is one
 ```
 
 The manifest records the audit ID (the same each time one audit is saved
@@ -240,6 +244,44 @@ is refused. When the zip was saved by a different build of the tool, the
 page says so, because changed audit rules can give different results; a
 decision whose row is no longer flagged is not kept when the audit is saved
 again.
+
+### Using a previous audit
+
+A new audit can be compared with a previous one: upload its saved zip in the
+optional **Previous Audit** slot, or click **Start next audit from this one**
+on an audit that is open (`previousAudit.ts`). Then:
+
+- The four decision tables get a **This Audit** column: `New`,
+  `Flagged again`, `Flagged again, source changed (was CAMS)` (Violations by
+  Protocol), or `Flagged again (marked Fix on 2026-08-29)`.
+- A previous **Don't fix** is filled in on a row flagged again, as
+  `Don't fix (unconfirmed)`, with its original reason, Decided By, and
+  Decided On. Every one needs a reviewer to click **Confirm** in this
+  audit, which fills in Confirmed By and Confirmed On; until then the row
+  counts as needing a decision. There is no confirm-all.
+- A previous **Fix** is never filled in. A row flagged again gets a new
+  decision.
+- A decision covers every event of its key, so one key never carries two
+  decisions. A case where some events are fine and others are not is
+  recorded as Fix, with the exceptions in the reason; it is decided again in
+  the next audit. If a previous audit's file has two different decisions
+  for one key (only a file edited by hand can), neither is carried, and the
+  row's label says so.
+- Previous decisions whose rows this audit does not flag are listed in
+  **Earlier Decisions Not Flagged**, a table collapsed by default, with
+  Table, Protocol Number, and Details (the issue, the failed checks, or the
+  mismatch direction) to identify each one. Every Don't fix stays there,
+  audit after audit, so it is ready if its row is flagged again. A Fix is
+  listed once, as resolved, when this upload covers the scans it was
+  flagged on, then dropped. The ✕ on a row stops it from moving forward.
+  The labels are `Not flagged, resolved` (this upload covers the scans it
+  was flagged on), `Not flagged, outside this upload's dates`, and
+  `Not flagged, carried from an earlier audit`.
+
+The saved audit keeps what it needs of the previous one in `previous/`, and
+the manifest lists the earlier decisions removed with ✕, so opening it again
+gives the same comparison without the previous audit's file. Saved audits
+are format version 2; the tool still opens version-1 files.
 
 ### REDCap collision guard
 
@@ -366,6 +408,8 @@ src/
                          each table and the decision CSV columns
   decisionUi.ts          the editable decision cells in the results tables
   savedAudit.ts          builds and reads the saved-audit zip and its manifest
+  previousAudit.ts       compares an audit with a previous one: This Audit
+                         labels, carried decisions, earlier decisions
   csvExport.ts           generic CSV export + download
   ruleExplanations.ts    plain-English descriptions shown under each table
   types.ts               shared type definitions
@@ -379,8 +423,8 @@ contrast_test_set_1/     sample data for the Contrast Injection Tool, plus
                           Contrast.jl, the Julia script this tool replaces
 ```
 
-`audit.ts`, `contrast.ts`, `cams.ts`, `decisions.ts`, and `savedAudit.ts`
-are framework-agnostic (no DOM dependency), which is what lets `npm test`
+`audit.ts`, `contrast.ts`, `cams.ts`, `decisions.ts`, `savedAudit.ts`, and
+`previousAudit.ts` are framework-agnostic (no DOM dependency), which is what lets `npm test`
 exercise both tools' logic from Node without a browser.
 
 ## Design decisions and constraints
