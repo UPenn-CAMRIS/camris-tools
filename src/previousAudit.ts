@@ -1,5 +1,7 @@
+import { OPPOSITE_RATE_ISSUES } from "./audit";
 import type { Column } from "./csvExport";
 import {
+  DECISION_KEYS,
   DECISION_KEY_COLUMNS,
   DECISION_TABLE_LABELS,
   decisionColumnsOf,
@@ -17,6 +19,7 @@ import {
   type RemovedDecision,
   type ScanRange,
 } from "./savedAudit";
+import type { ProtocolIssueRow } from "./types";
 
 /**
  * A previous audit, used for reference when starting a new one:
@@ -26,6 +29,10 @@ import {
  * - A previous "Don't fix" is filled in on a row flagged again, and needs
  *   a reviewer to confirm it in this audit (carryDecisions).
  * - A previous "Fix" is never filled in; its row's label says so.
+ * - A previous "Fix" on a rate check that CAMS and REDCap disagreed on
+ *   comes back as the opposite rate check (findReversals). Its reason is
+ *   filled in, as an unconfirmed "Don't fix", and it is not listed in
+ *   the Earlier Decisions Not Flagged table.
  * - A previous decision whose row this audit does not flag is listed in
  *   the Earlier Decisions Not Flagged table (earlierDecisionRows), so a
  *   "Don't fix" keeps moving forward until a reviewer removes it.
@@ -40,6 +47,8 @@ export const DECISION_TABLE_IDS = Object.keys(
 export const SINCE_PREVIOUS = {
   new: "New",
   flaggedAgain: "Flagged again",
+  /** The opposite rate check of a previous "Fix"; see findReversals. */
+  reversed: "Reversed",
   /** The previous audit flagged it, and this upload covers the scans it
    * was flagged on, so it would have been flagged again if still wrong. */
   resolved: "Not flagged, resolved",
@@ -252,13 +261,69 @@ export function keyCellsFromDetails(
   ];
 }
 
+/** A Violations by Protocol row of this audit that reverses a previous
+ * "Fix"; see findReversals. */
+export interface Reversal {
+  /** The previous audit's decision key of the opposite issue. */
+  previousKey: string;
+  /** The opposite issue, as the previous audit flagged it. */
+  issue: string;
+  /** The previous audit's entry for that key. Its decision is "Fix". */
+  entry: PreviousEntry;
+}
+
+const OTHER_INDUSTRY_SOURCE: Record<string, string> = {
+  CAMS: "REDCap",
+  REDCap: "CAMS",
+};
+
+/** The Violations by Protocol rows that reverse a previous "Fix", by
+ * decision key. CAMS and REDCap disagreed on whether the protocol is
+ * industry-sponsored, so the previous audit flagged a rate check with
+ * one of them as its Disagreeing Source. A reviewer marked it Fix, and
+ * the rate was changed to agree with that source. Now the other source
+ * disagrees, and this audit flags the opposite rate check: for example,
+ * "Government billed as industry (MRI)" from REDCap becomes "Industry
+ * billed as government (MRI)" from CAMS. Such a row is not new.
+ *
+ * A row whose own key the previous audit had is compared with that
+ * entry instead, and is never a reversal. */
+export function findReversals(
+  rows: ProtocolIssueRow[],
+  entries: Map<string, PreviousEntry>
+): Map<string, Reversal> {
+  const reversals = new Map<string, Reversal>();
+  for (const row of rows) {
+    const key = DECISION_KEYS.protocolIssues(row);
+    if (entries.has(key)) continue;
+    const issue = OPPOSITE_RATE_ISSUES.get(row.issue);
+    const otherSource = OTHER_INDUSTRY_SOURCE[row.source];
+    if (issue === undefined || otherSource === undefined) continue;
+    const previousKey = decisionKeyFromCells([row.protocolNumber, issue]);
+    const entry = entries.get(previousKey);
+    if (
+      entry?.wasFlagged &&
+      entry.source === otherSource &&
+      entry.decision?.value === "Fix"
+    ) {
+      reversals.set(key, { previousKey, issue, entry });
+    }
+  }
+  return reversals;
+}
+
 /** The Since Previous Audit label of a row flagged in this audit, whose
  * previous entry is `entry`, and whose Disagreeing Source is `source`
- * (undefined in a table without one). */
+ * (undefined in a table without one). `reversal` is the previous "Fix"
+ * the row reverses, if any; it is used only when there is no `entry`. */
 export function flaggedAgainLabel(
   entry: PreviousEntry | undefined,
-  source: string | undefined
+  source: string | undefined,
+  reversal?: Reversal
 ): string {
+  if (!entry && reversal) {
+    return `${SINCE_PREVIOUS.reversed} (was ${reversal.issue} from ${reversal.entry.source}, marked Fix on ${reversal.entry.decision!.decidedOn})`;
+  }
   if (!entry) return SINCE_PREVIOUS.new;
   let label: string = SINCE_PREVIOUS.flaggedAgain;
   if (source !== undefined && entry.source !== "" && entry.source !== source) {
@@ -273,13 +338,15 @@ export function flaggedAgainLabel(
 }
 
 /** The Since Previous Audit label of each decision key flagged in this
- * audit. */
+ * audit. `reversals`, from findReversals, is for Violations by
+ * Protocol. */
 export function sincePreviousLabels<T>(
   table: DecisionTableId,
   rows: T[],
   keyFn: (row: T) => string,
   sourceOf: ((row: T) => string) | undefined,
-  previous: PreviousAudit | null
+  previous: PreviousAudit | null,
+  reversals?: Map<string, Reversal>
 ): Map<string, string> {
   const labels = new Map<string, string>();
   if (!previous) return labels;
@@ -288,7 +355,11 @@ export function sincePreviousLabels<T>(
     if (labels.has(key)) continue;
     labels.set(
       key,
-      flaggedAgainLabel(previous.entries[table].get(key), sourceOf?.(row))
+      flaggedAgainLabel(
+        previous.entries[table].get(key),
+        sourceOf?.(row),
+        reversals?.get(key)
+      )
     );
   }
   return labels;
@@ -298,21 +369,29 @@ export function sincePreviousLabels<T>(
  * unconfirmed: it counts as needing a decision until a reviewer confirms
  * it. A key is considered once, so a decision a reviewer removed is not
  * filled in again when the audit re-runs; a key that already has a
- * decision keeps it. */
+ * decision keeps it.
+ *
+ * A key in `reversals` (from findReversals) gets an unconfirmed "Don't
+ * fix" with the reason, Decided By, and Decided On of the "Fix" it
+ * reverses: the rate was changed for that reason, so the opposite flag
+ * is expected. */
 export function carryDecisions(
   keys: Iterable<string>,
   entries: Map<string, PreviousEntry>,
   decisions: Map<string, Decision>,
-  considered: Set<string>
+  considered: Set<string>,
+  reversals?: Map<string, Reversal>
 ): void {
   for (const key of keys) {
     if (considered.has(key)) continue;
     considered.add(key);
     if (decisions.has(key)) continue;
-    const previous = entries.get(key)?.decision;
-    if (previous?.value !== "Don't fix") continue;
+    const own = entries.get(key)?.decision;
+    const previous =
+      own?.value === "Don't fix" ? own : reversals?.get(key)?.entry.decision;
+    if (!previous) continue;
     decisions.set(key, {
-      value: previous.value,
+      value: "Don't fix",
       reason: previous.reason,
       decidedBy: previous.decidedBy,
       decidedOn: previous.decidedOn,
@@ -360,21 +439,28 @@ function covers(range: ScanRange | null, span: ScanRange | null): boolean {
  *   once, as resolved.
  *
  * A previous "Fix" whose scans this upload does not cover is dropped: it
- * is in the previous audit's file. `flagged` holds each table's keys
- * flagged in this audit, and `range` is this upload's Dogfish scan range.
+ * is in the previous audit's file. So is a "Fix" that a Violations by
+ * Protocol row of this audit reverses (`reversals`, from findReversals):
+ * that row shows it. `flagged` holds each table's keys flagged in this
+ * audit, and `range` is this upload's Dogfish scan range.
  */
 export function earlierDecisionRows(
   previous: PreviousAudit | null,
   flagged: Record<DecisionTableId, Set<string>>,
   range: ScanRange | null,
-  removed: Set<string>
+  removed: Set<string>,
+  reversals?: Map<string, Reversal>
 ): EarlierDecisionRow[] {
   const rows: EarlierDecisionRow[] = [];
   if (!previous) return rows;
+  const reversed = new Set(
+    [...(reversals?.values() ?? [])].map((r) => r.previousKey)
+  );
   for (const table of DECISION_TABLE_IDS) {
     for (const [key, entry] of previous.entries[table]) {
       const decision = entry.decision;
       if (!decision || flagged[table].has(key)) continue;
+      if (table === "protocolIssues" && reversed.has(key)) continue;
       if (removed.has(removedId(table, entry.keyCells))) continue;
 
       let sincePrevious: string;

@@ -20,6 +20,7 @@ import type {
   ProdevConsistencyRow,
   ProtocolIssueRow,
   RateDisagreement,
+  RateViolationFlag,
   RedcapNameCollision,
   ScannerEventRow,
   ServiceFlags,
@@ -153,6 +154,31 @@ export const VIOLATION_ISSUES: ViolationIssue[] = (
   Object.keys(VIOLATION_ISSUE_DEFINITIONS) as ViolationFlag[]
 ).map(
   (flag) => ({ flag, ...VIOLATION_ISSUE_DEFINITIONS[flag] }) as ViolationIssue
+);
+
+// Each rate check and the check that flags the same fee the other way.
+// The Record type makes the compiler reject a new rate check with no
+// opposite here.
+const OPPOSITE_RATE_CHECKS: Record<RateViolationFlag, RateViolationFlag> = {
+  industryBilledAsGovernment: "governmentBilledAsIndustry",
+  governmentBilledAsIndustry: "industryBilledAsGovernment",
+  stimulusBilledAsGovernment: "stimulusBilledAsIndustry",
+  stimulusBilledAsIndustry: "stimulusBilledAsGovernment",
+  neuroreaderBilledAsGovernment: "neuroreaderBilledAsIndustry",
+  neuroreaderBilledAsIndustry: "neuroreaderBilledAsGovernment",
+};
+
+/** Each rate check's issue, and the issue of the check that flags the
+ * same fee the other way: "Industry billed as government (MRI)" and
+ * "Government billed as industry (MRI)", and so on. When CAMS and REDCap
+ * disagree on industry sponsorship, a rate that agrees with one source is
+ * flagged by the other, so changing the rate moves the flag to the
+ * opposite issue. */
+export const OPPOSITE_RATE_ISSUES: ReadonlyMap<string, string> = new Map(
+  (Object.keys(OPPOSITE_RATE_CHECKS) as RateViolationFlag[]).map((flag) => [
+    VIOLATION_ISSUE_DEFINITIONS[flag].issue,
+    VIOLATION_ISSUE_DEFINITIONS[OPPOSITE_RATE_CHECKS[flag]].issue,
+  ])
 );
 
 // Dogfish and CAMS protocol numbers use one of three formats:

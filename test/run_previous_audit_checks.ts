@@ -18,11 +18,13 @@ import {
   detailsFromKeyCells,
   earlierDecisionColumns,
   earlierDecisionRows,
+  findReversals,
   keyCellsFromDetails,
   readPreviousAudit,
   removedIds,
   sincePreviousLabels,
   type PreviousAudit,
+  type Reversal,
 } from "../src/previousAudit";
 import {
   DECISION_REPORT_FILES,
@@ -339,6 +341,117 @@ assert.deepEqual(
     ["100004", "26-9999", "832792-P"]
   );
   assert.deepEqual(earlierDecisionRows(null, flaggedNow(), SEPTEMBER, new Set()), []);
+}
+
+// A previous "Fix" on a rate check that CAMS and REDCap disagreed on
+// comes back as the opposite rate check, with the other source: the rate
+// was changed to agree with one source, so the other one now disagrees.
+// It is labelled as reversed, not new; its reason is filled in as an
+// unconfirmed "Don't fix"; and the "Fix" is not listed as an earlier
+// decision.
+{
+  const flipFiles = new Map(PREVIOUS_FILES);
+  flipFiles.set(
+    DECISION_REPORT_FILES.protocolIssues,
+    [
+      `Protocol Number,Issue,Disagreeing Source,Events,First Scan,Last Scan,${DECISION_HEADERS}`,
+      `300001,Government billed as industry (MRI),REDCap,1,2026-08-03 09:00:00,2026-08-03 09:00:00,New,Fix,REDCap is right; rebill at government rate,DT,2026-08-29,DT,2026-08-29`,
+      `300002,Stimulus billed as government,CAMS,1,2026-08-04 09:00:00,2026-08-04 09:00:00,New,Fix,CAMS is right; rebill at industry rate,KB,2026-08-28,KB,2026-08-28`,
+      `300003,Government billed as industry (MRI),REDCap,1,2026-08-05 09:00:00,2026-08-05 09:00:00,New,Fix,Rebill,DT,2026-08-29,DT,2026-08-29`,
+      `300004,Government billed as industry (MRI),REDCap,1,2026-08-06 09:00:00,2026-08-06 09:00:00,New,Fix,Rebill,DT,2026-08-29,DT,2026-08-29`,
+      `300005,Government billed as industry (MRI),REDCap,1,2026-08-07 09:00:00,2026-08-07 09:00:00,New,Don't fix,Billed as agreed,DT,2026-08-29,DT,2026-08-29`,
+      `300006,Government billed as industry (MRI),REDCap,1,2026-08-08 09:00:00,2026-08-08 09:00:00,New,Fix,Rebill,DT,2026-08-29,DT,2026-08-29`,
+      `300006,Industry billed as government (MRI),CAMS,1,2026-08-09 09:00:00,2026-08-09 09:00:00,New,,,,,,`,
+    ].join("\r\n")
+  );
+  const flipPrevious = readPreviousAudit(RECORD, flipFiles);
+  const entries = flipPrevious.entries.protocolIssues;
+  const rows = [
+    // Reversed, for the MRI rate and for an ancillary fee.
+    protocolIssue("300001", "Industry billed as government (MRI)", "CAMS"),
+    protocolIssue("300002", "Stimulus billed as industry", "REDCap"),
+    // Not reversed: both sources now disagree, or the same source does.
+    protocolIssue("300003", "Industry billed as government (MRI)", "CAMS + REDCap"),
+    protocolIssue("300004", "Industry billed as government (MRI)", "REDCap"),
+    // Not reversed: the previous decision was "Don't fix".
+    protocolIssue("300005", "Industry billed as government (MRI)", "CAMS"),
+    // The previous audit flagged this key itself, so it is flagged again.
+    protocolIssue("300006", "Industry billed as government (MRI)", "CAMS"),
+  ];
+  const keys = rows.map(keyOfIssue);
+  const reversals = findReversals(rows, entries);
+  assert.deepEqual([...reversals.keys()], [keys[0], keys[1]]);
+  assert.equal(
+    reversals.get(keys[0])?.previousKey,
+    keyOfIssue(protocolIssue("300001", "Government billed as industry (MRI)", "REDCap"))
+  );
+
+  const labels = sincePreviousLabels(
+    "protocolIssues",
+    rows,
+    keyOfIssue,
+    (r) => r.source,
+    flipPrevious,
+    reversals
+  );
+  assert.deepEqual(
+    keys.map((key) => labels.get(key)),
+    [
+      "Reversed (was Government billed as industry (MRI) from REDCap, marked Fix on 2026-08-29)",
+      "Reversed (was Stimulus billed as government from CAMS, marked Fix on 2026-08-28)",
+      SINCE_PREVIOUS.new,
+      SINCE_PREVIOUS.new,
+      SINCE_PREVIOUS.new,
+      SINCE_PREVIOUS.flaggedAgain,
+    ]
+  );
+
+  const decisions = new Map<string, Decision>();
+  carryDecisions(keys, entries, decisions, new Set(), reversals);
+  assert.deepEqual(decisions.get(keys[0]), {
+    value: "Don't fix",
+    reason: "REDCap is right; rebill at government rate",
+    decidedBy: "DT",
+    decidedOn: "2026-08-29",
+    confirmedBy: "",
+    confirmedOn: "",
+    unconfirmed: true,
+  });
+  assert.equal(decisions.get(keys[1])?.reason, "CAMS is right; rebill at industry rate");
+  assert.equal(needsDecision(decisions.get(keys[0])), true);
+  assert.deepEqual([...decisions.keys()], [keys[0], keys[1]]);
+
+  // Without the reversals, nothing is filled in on those rows.
+  const plain = new Map<string, Decision>();
+  carryDecisions(keys, entries, plain, new Set());
+  assert.equal(plain.size, 0);
+
+  // The same August data re-run: a reversed "Fix" is not listed as
+  // resolved; the other "Fix" decisions are.
+  const flagged = {
+    protocolIssues: new Set(keys),
+    mismatches: new Set<string>(),
+    prodevConsistency: new Set<string>(),
+    humanMriExternal: new Set<string>(),
+  };
+  const listed = (r?: Map<string, Reversal>) =>
+    earlierDecisionRows(flipPrevious, flagged, AUGUST, new Set(), r)
+      .filter((row) => row.keyCells[0].startsWith("3000"))
+      .map((row) => row.keyCells.join(" / "));
+  assert.deepEqual(listed(), [
+    "300001 / Government billed as industry (MRI)",
+    "300002 / Stimulus billed as government",
+    "300003 / Government billed as industry (MRI)",
+    "300004 / Government billed as industry (MRI)",
+    "300005 / Government billed as industry (MRI)",
+    "300006 / Government billed as industry (MRI)",
+  ]);
+  assert.deepEqual(listed(reversals), [
+    "300003 / Government billed as industry (MRI)",
+    "300004 / Government billed as industry (MRI)",
+    "300005 / Government billed as industry (MRI)",
+    "300006 / Government billed as industry (MRI)",
+  ]);
 }
 
 // The Earlier Decisions Not Flagged CSV reads back, as the next audit's
