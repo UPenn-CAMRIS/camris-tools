@@ -59,10 +59,12 @@ import {
   carryDecisions,
   earlierDecisionColumns,
   earlierDecisionRows,
+  findReversals,
   removedIds,
   sincePreviousLabels,
   type EarlierDecisionRow,
   type PreviousAudit,
+  type Reversal,
 } from "../previousAudit";
 import { decisionTableUi, type DecisionContext } from "../decisionUi";
 import {
@@ -327,7 +329,7 @@ export function renderAuditPage(
           <summary>
             <h2>Earlier Decisions Not Flagged <span class="count" id="earlier-count"></span></h2>
           </summary>
-          <p class="table-note">Decisions from the previous audit whose rows this audit does not flag. Each "Don't fix" here moves forward to the next audit, so it is ready if the row is flagged again; remove it with ✕ to stop that. A "Fix" is listed once, when this upload covers the scans it was flagged on, as resolved.</p>
+          <p class="table-note">Decisions from the previous audit whose rows this audit does not flag. Each "Don't fix" here moves forward to the next audit, so it is ready if the row is flagged again; remove it with ✕ to stop that. A "Fix" is listed once, when this upload covers the scans it was flagged on, as resolved, unless a row of Violations by Protocol reverses it.
           <div class="table-wrap" id="earlier-table"></div>
         </details>
       </div>
@@ -493,6 +495,9 @@ export function renderAuditPage(
     humanMriExternal: new Map(),
   };
   let flaggedKeys = emptyKeySets();
+  // The Violations by Protocol rows that reverse a previous "Fix" (see
+  // findReversals).
+  let reversals = new Map<string, Reversal>();
   let earlierRows: EarlierDecisionRow[] = [];
 
   const hasAnyDecision = () =>
@@ -1024,16 +1029,20 @@ export function renderAuditPage(
 
   /** Compares the last run with the previous audit: each decision row's
    * Since Previous Audit label, the previous "Don't fix" decisions filled
-   * in on rows flagged again, and the earlier decisions this audit does
-   * not flag. */
+   * in on rows flagged again or reversed, and the earlier decisions this
+   * audit does not flag. */
   function compareWithPrevious(): void {
+    reversals = previousAudit
+      ? findReversals(lastResult.protocolIssues, previousAudit.entries.protocolIssues)
+      : new Map();
     sincePrevious = {
       protocolIssues: sincePreviousLabels(
         "protocolIssues",
         lastResult.protocolIssues,
         DECISION_KEYS.protocolIssues,
         (r) => r.source,
-        previousAudit
+        previousAudit,
+        reversals
       ),
       mismatches: sincePreviousLabels(
         "mismatches",
@@ -1073,7 +1082,8 @@ export function renderAuditPage(
           flaggedKeys[table],
           previousAudit.entries[table],
           decisions[table],
-          considered[table]
+          considered[table],
+          table === "protocolIssues" ? reversals : undefined
         );
       }
     }
@@ -1087,7 +1097,8 @@ export function renderAuditPage(
       previousAudit,
       flaggedKeys,
       lastRun?.dogfishScanRange ?? null,
-      removedIds(removedDecisions)
+      removedIds(removedDecisions),
+      reversals
     ).map((row) => ({
       ...row,
       decision: decisions[row.table].get(row.key) ?? row.decision,

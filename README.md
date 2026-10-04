@@ -275,6 +275,18 @@ in the optional **Previous Audit** slot (`previousAudit.ts`). Then:
   counts as needing a decision. There is no confirm-all.
 - A previous **Fix** is never filled in. A row flagged again gets a new
   decision.
+- A rate check that CAMS and REDCap disagree on reverses after a Fix. If
+  the previous audit flagged `Government billed as industry (MRI)` with
+  REDCap as the Disagreeing Source, and the rate was changed to agree with
+  REDCap, this audit flags `Industry billed as government (MRI)` with CAMS
+  as the source. The same holds the other way round, and for the Stimulus
+  and Neuroreader fee rates. Such a row is labelled `Reversed (was
+  Government billed as industry (MRI) from REDCap, marked Fix on
+  2026-08-29)`, not `New`, and gets `Don't fix (unconfirmed)` with the
+  Fix's reason, Decided By, and Decided On, to confirm like any carried
+  Don't fix. The Fix it reverses is not listed in Earlier Decisions Not
+  Flagged. A row whose source is `CAMS + REDCap`, or the same source as
+  before, is not a reversal.
 - A decision covers every event of its key, so one key never carries two
   decisions. A case where some events are fine and others are not is
   recorded as Fix, with the exceptions in the reason; it is decided again in
