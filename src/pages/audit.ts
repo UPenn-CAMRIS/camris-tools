@@ -51,6 +51,7 @@ import {
   DECISION_KEYS,
   countNeedingDecision,
   emptyDecisionStore,
+  eventsAllDontFix,
   type Decision,
   type DecisionTableId,
 } from "../decisions";
@@ -254,6 +255,10 @@ export function renderAuditPage(
       <div class="results-section">
         <div class="results-section-header">
           <h2>Violations by Event <span class="count" id="violation-issue-count"></span></h2>
+          <label class="table-filter">
+            <input type="checkbox" id="hide-dont-fix-events" />
+            Hide events whose violations are all Don't fix
+          </label>
         </div>
         <div class="table-wrap" id="violation-issues-table"></div>
         ${renderRuleExplanations(VIOLATION_RULE_EXPLANATIONS, VIOLATION_SUMMARY)}
@@ -468,6 +473,9 @@ export function renderAuditPage(
   ) as HTMLInputElement;
   const saveButton = document.getElementById("save-audit") as HTMLButtonElement;
   const saveStatus = document.getElementById("save-status")!;
+  const hideDontFixEvents = document.getElementById(
+    "hide-dont-fix-events"
+  ) as HTMLInputElement;
 
   // The audit as last run, for saving. Its ID and creation time stay the
   // same across re-runs on this page.
@@ -516,6 +524,7 @@ export function renderAuditPage(
       unsaved = true;
       refreshDecisionCounts();
       refreshSaveStatus();
+      renderViolationIssues();
     },
   };
 
@@ -742,7 +751,6 @@ export function renderAuditPage(
       unsaved = true;
       compareWithPrevious();
       const {
-        violationIssues,
         protocolIssues,
         dedupedMismatches,
         excessLateCancellations,
@@ -754,12 +762,6 @@ export function renderAuditPage(
         feesOnExternalProtocols,
       } = lastResult;
 
-      const eventCount = new Set(violationIssues.map((r) => r.eventId)).size;
-      setCountText(
-        "violation-issue-count",
-        `${countOf(violationIssues.length, "error", "errors")} across ` +
-          countOf(eventCount, "event", "events")
-      );
       refreshDecisionCounts();
       setCount("late-cancellation-count", excessLateCancellations.length);
       setCount("no-show-prodev-count", noShowsOnProdevProtocols.length);
@@ -767,12 +769,7 @@ export function renderAuditPage(
       setCount("scanner-event-count", scannerEvents.length);
       setCount("addon-count", addOnsWithoutMri.length);
 
-      renderTable(
-        "violation-issues-table",
-        violationIssueColumns,
-        violationIssues,
-        "No violations found."
-      );
+      renderViolationIssues();
       protocolIssueDecisions.reset();
       renderTable(
         "protocol-issues-table",
@@ -839,6 +836,35 @@ export function renderAuditPage(
       resultsEl.classList.remove("visible");
     }
   });
+
+  /** Shows the Violations by Event table and its count. With the filter
+   * checked, an event whose every violation is "Don't fix" on Violations
+   * by Protocol is hidden (see eventsAllDontFix). The filter is for the
+   * screen only: the saved audit's CSV file has every event. */
+  function renderViolationIssues(): void {
+    const all = lastResult.violationIssues;
+    const hidden = hideDontFixEvents.checked
+      ? eventsAllDontFix(all, decisions.protocolIssues)
+      : new Set<string>();
+    const shown = all.filter((r) => !hidden.has(r.eventId));
+    const eventCount = new Set(shown.map((r) => r.eventId)).size;
+    setCountText(
+      "violation-issue-count",
+      `${countOf(shown.length, "error", "errors")} across ` +
+        countOf(eventCount, "event", "events") +
+        (hidden.size > 0 ? ` · ${countOf(hidden.size, "event", "events")} hidden` : "")
+    );
+    renderTable(
+      "violation-issues-table",
+      violationIssueColumns,
+      shown,
+      all.length > 0
+        ? "Every event's violations are Don't fix."
+        : "No violations found."
+    );
+  }
+
+  hideDontFixEvents.addEventListener("change", renderViolationIssues);
 
   /** The inputs the audit is about to run on, for the saved audit. */
   function auditedInputs(): Record<AuditInputKey, AuditInputFile> {

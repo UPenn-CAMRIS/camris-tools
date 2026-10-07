@@ -106,6 +106,15 @@ each results table in the app itself.
    tracing a specific charge back to a specific scan. The count reads, for
    example, "51 errors across 42 events".
 
+   The **Hide events whose violations are all Don't fix** checkbox hides
+   each event whose every violation has a Don't fix on Violations by
+   Protocol (its protocol number and issue). An event with one Don't fix
+   violation and one undecided or Fix violation stays. A Don't fix carried
+   from a previous audit counts only once a reviewer confirms it. The count
+   then gives the rows shown and the events hidden, for example "9 errors
+   across 6 events · 36 events hidden". The checkbox changes the screen
+   only: the saved audit's `audit_violations.csv` always has every event.
+
    In both tables, Disagreeing Source names the data that disagrees with
    what Dogfish billed: `CAMS`, `REDCap`, or `CAMS + REDCap` (industry
    sponsorship, for the rate checks; `REDCap` also for a CHOP study),

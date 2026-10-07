@@ -580,3 +580,11 @@ button.sort-header:focus-visible {
   margin-left: 0.3rem;
   font-size: 0.75em;
 }
+
+.table-filter {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
