@@ -5,6 +5,7 @@ import type {
   HumanMriExternalEventRow,
   ProdevConsistencyRow,
   ProtocolIssueRow,
+  ViolationIssueRow,
 } from "./types";
 
 /** What the reviewers decided to do about a flagged row. */
@@ -90,7 +91,7 @@ export function decisionKeyFromCells(cells: string[]): string {
  * - Human MRI (Industry/External) Events: the protocol number. The
  *   decision covers every external-rate event of that protocol. */
 export const DECISION_KEYS = {
-  protocolIssues: (row: ProtocolIssueRow) =>
+  protocolIssues: (row: Pick<ProtocolIssueRow, "protocolNumber" | "issue">) =>
     keyOf(row.protocolNumber, row.issue),
   mismatches: (row: DedupedMismatchRow) =>
     keyOf(
@@ -182,6 +183,26 @@ export function needsDecision(decision: Decision | undefined): boolean {
     decision === undefined ||
     decision.unconfirmed === true ||
     (decision.value === "Don't fix" && decision.reason === "")
+  );
+}
+
+/** The Event IDs of the Violations by Event table whose every violation
+ * is "Don't fix" on Violations by Protocol, by `decisions` (that table's
+ * decisions). A violation's decision is the one on its protocol number
+ * and issue. A "Don't fix" that still needs a decision (carried and not
+ * confirmed, or with no reason) does not count. */
+export function eventsAllDontFix(
+  rows: ViolationIssueRow[],
+  decisions: Map<string, Decision>
+): Set<string> {
+  const allDontFix = new Map<string, boolean>();
+  for (const row of rows) {
+    const decision = decisions.get(DECISION_KEYS.protocolIssues(row));
+    const dontFix = decision?.value === "Don't fix" && !needsDecision(decision);
+    allDontFix.set(row.eventId, (allDontFix.get(row.eventId) ?? true) && dontFix);
+  }
+  return new Set(
+    [...allDontFix].filter(([, all]) => all).map(([eventId]) => eventId)
   );
 }
 

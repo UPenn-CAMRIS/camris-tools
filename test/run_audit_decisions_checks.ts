@@ -3,11 +3,14 @@ import { strFromU8, strToU8, unzipSync } from "fflate";
 import { toCsv, type Column } from "../src/csvExport";
 import {
   DECISION_KEYS,
+  confirmDecision,
   countNeedingDecision,
   decisionColumns,
   emptyDecisionStore,
+  eventsAllDontFix,
   needsDecision,
   recordDecision,
+  type Decision,
 } from "../src/decisions";
 import {
   applyRowCorrection,
@@ -28,6 +31,7 @@ import type {
   HumanMriExternalEventRow,
   ProdevConsistencyRow,
   ProtocolIssueRow,
+  ViolationIssueRow,
 } from "../src/types";
 
 /**
@@ -375,6 +379,67 @@ assert.notEqual(
   assert.equal(replayed.rawText, redcap.rawText);
   assert.equal(replayed.hasBom, true);
   assert.deepEqual(replayed.warnings, []);
+}
+
+// The Violations by Event filter: an event is hidden only when every one
+// of its violations is "Don't fix" on Violations by Protocol, by its
+// protocol number and issue. A carried "Don't fix" counts once confirmed.
+{
+  const issue = (eventId: string, protocolNumber: string, issue: string): ViolationIssueRow => ({
+    eventId,
+    protocolNumber,
+    scanTime: "",
+    scanner: "",
+    issue,
+    source: "CAMS",
+  });
+  const rows = [
+    issue("1", "850001", "Industry billed as government (MRI)"),
+    issue("1", "850001", "Neuroreader billed as government"),
+    issue("2", "850001", "Industry billed as government (MRI)"),
+    issue("3", "850002", "Stimulus billing missed"),
+    issue("3", "850002", "Neuroreader billing missed"),
+    issue("4", "850003", "Human billed as animal"),
+    issue("5", "850004", "Animal billed as human"),
+  ];
+  const decisions = new Map<string, Decision>();
+  const decide = (protocolNumber: string, issueName: string, value: "Fix" | "Don't fix") =>
+    recordDecision(
+      decisions,
+      DECISION_KEYS.protocolIssues({ protocolNumber, issue: issueName }),
+      value,
+      "Reason",
+      "DT",
+      "2026-10-04"
+    );
+  decide("850001", "Industry billed as government (MRI)", "Don't fix");
+  decide("850002", "Stimulus billing missed", "Don't fix");
+  decide("850002", "Neuroreader billing missed", "Don't fix");
+  decide("850003", "Human billed as animal", "Fix");
+  decisions.set(DECISION_KEYS.protocolIssues({ protocolNumber: "850004", issue: "Animal billed as human" }), {
+    value: "Don't fix",
+    reason: "Carried",
+    decidedBy: "KB",
+    decidedOn: "2026-08-29",
+    confirmedBy: "",
+    confirmedOn: "",
+    unconfirmed: true,
+  });
+  // 1: one of two violations undecided. 2: its only violation is Don't
+  // fix. 3: both are. 4: Fix. 5: carried, unconfirmed.
+  assert.deepEqual([...eventsAllDontFix(rows, decisions)], ["2", "3"]);
+
+  // Deciding event 1's other violation, and confirming event 5's, hides
+  // both.
+  decide("850001", "Neuroreader billed as government", "Don't fix");
+  confirmDecision(
+    decisions,
+    DECISION_KEYS.protocolIssues({ protocolNumber: "850004", issue: "Animal billed as human" }),
+    "DT",
+    "2026-10-04"
+  );
+  assert.deepEqual([...eventsAllDontFix(rows, decisions)].sort(), ["1", "2", "3", "5"]);
+  assert.equal(eventsAllDontFix(rows, new Map()).size, 0);
 }
 
 console.log("audit decisions checks: all assertions passed");
